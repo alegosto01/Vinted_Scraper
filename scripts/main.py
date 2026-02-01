@@ -15,6 +15,7 @@ from selenium.webdriver import Remote, ChromeOptions
 from selenium.webdriver.chromium.remote_connection import ChromiumRemoteConnection
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import scraping_options
+from search_loader import load_searches
 
 
 # SBR_WEBDRIVER = f'http://brd-customer-hl_c6889560-zone-datacenter_proxy1:9rg06kk55uec@brd.superproxy.io:22225'
@@ -24,12 +25,18 @@ searchBenny = 0
 searchAle = 1
 
 def main():
+
+
+    searches = load_searches("/home/ale/Desktop/Vinted_New_Version/data/searches.yaml")
+
+    programmed_searches = [
+        s for s in searches.values() if s.enabled
+    ]
+
     # non_really_sold_items_ids = set()
 
-    # if searchBenny:
-    #     scraping_options.scrapeSpecificItems_parallel(searches.programmed_searches_benny)
-    if searchAle:
-        scraping_options.scrapeSpecificItems_parallel(searches.programmed_searches_ale)
+
+    scraping_options.scrapeSpecificItems_parallel(programmed_searches)
 
         # for search_count in range(1, 10):
 

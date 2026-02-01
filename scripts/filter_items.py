@@ -5,8 +5,11 @@ import pandas as pd
 import clip
 import math
 
-data_folder_simple_scrape = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
 
+from chat_gpt import generate_negative_keywords_csv
+
+data_folder_simple_scrape = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
+searches_yaml = "/home/ale/Desktop/Vinted_New_Version/data/searches.yaml"
 gpt_hey = "REMOVED_OPENAI_KEY"
 
 def removeRowsContainingWrongWords(df_item, wrong_words):
@@ -61,3 +64,26 @@ def filterOut_WrongWordsInTitle(dictionary, csv_path):
     df_cleaned.to_csv(csv_path, index=False)
 
     return df_item, df_cleaned
+
+
+def apply_all_filters(dictionary, df_item_path):
+    item_folder_path = os.path.join(data_folder_simple_scrape, dictionary.folder)
+    negative_keywords_path = os.path.join(item_folder_path, "negative_keywords.csv")
+    
+    if not os.path.exists(negative_keywords_path):
+        print(f"No negative keywords file found at {negative_keywords_path}. I will create it.")
+        csv_path = generate_negative_keywords_csv(
+            search_query=dictionary.search,
+            output_dir=item_folder_path,
+            locale="it-IT"
+        )
+
+    df_item, df_cleaned = filterOut_WrongWordsInTitle(dictionary, df_item_path)
+
+    return df_item, df_cleaned
+
+
+
+if __name__ == "__main__":
+
+    apply_all_filters(searches_yaml.jbl_charge_5, "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/jbl_charge_5/old_df.csv")

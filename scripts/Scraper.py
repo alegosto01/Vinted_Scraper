@@ -125,19 +125,19 @@ class Scraper:
         
     # create the url setting all the filters of the search
     def create_webpage(self, dictionary): 
-        input_search = str(dictionary["search"]).replace(" ","%20")
+        input_search = str(dictionary.search).replace(" ","%20")
         input_search = "&search_text=" + input_search
         #set sorting order
-        order = "&order=" + dictionary["sort"]
+        order = "&order=" + dictionary.sort
 
         #setting price fro and price to
-        price_from = "" if dictionary["prezzoDa"] == " " else "&price_from=" + dictionary["prezzoDa"]
-        price_to = "" if dictionary["prezzoA"] == " " else "&price_to=" + dictionary["prezzoA"]
+        price_from = "" if dictionary.prezzoDa == " " else "&price_from=" + dictionary.prezzoDa
+        price_to = "" if dictionary.prezzoA == " " else "&price_to=" + dictionary.prezzoA
 
         #set colors list
         color_search = ""
-        if dictionary["colore"] != " ":
-            color_list = dictionary["colore"].split("-")
+        if dictionary.colore != " ":
+            color_list = dictionary.colore.split("-")
             color_ids = f.find_color_ids(color_list)
             for color_id in color_ids:
                 color_search = color_search + "&color_ids[]=" + str(color_id)
@@ -145,8 +145,8 @@ class Scraper:
         #set brand list
         brands_search = ""
 
-        if dictionary["brands"] != " ":
-            brands_list = dictionary["brands"].split("-")
+        if dictionary.brands != " ":
+            brands_list = dictionary.brands.split("-")
             brands_ids = []
             non_saved_brands = []
 
@@ -192,15 +192,14 @@ class Scraper:
 
         #set condition of the items
         condition = ""
-        condition_list = dictionary["condition"].split("-")
+        condition_list = dictionary.condition.split("-")
         for elem in condition_list:
             if elem != " ":
                 condition = condition + "&status_ids[]=" + elem
         # condition = "" if dictionary["condition"] == " " else "&status_ids[]=" + dictionary["condition"]
         
         #set item's category
-        category = "" if dictionary["category"] == " " else "&catalog[]=" + search.categories[dictionary["category"]]
-
+        category = "" if dictionary.category == " " else "&catalog[]=" + search.categories[dictionary.category]
 
 
 

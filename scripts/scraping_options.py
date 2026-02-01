@@ -1,3 +1,4 @@
+import traceback
 import pandas as pd
 import searches
 from full_scraper import Full_Scraper
@@ -93,11 +94,11 @@ def _process_one_search(ricerca, search_count, pages_to_scrape):
     Runs ONE search (one 'ricerca'): scrape, dedup vs old_df.csv, persist, and return summary + new_df.
     This function is safe to run in parallel as long as each ricerca has its own folder.
     """
-    output_folder = os.path.join(data_folder_simple_scrape, ricerca['folder'])
+    output_folder = os.path.join(data_folder_simple_scrape, ricerca.folder)
     os.makedirs(output_folder, exist_ok=True)
     pathfile_old_df_item = os.path.join(output_folder, "old_df.csv")
 
-    print(f"SEARCH: {ricerca['search']}")
+    print(f"SEARCH: {ricerca.search}")
     print("-" * 20)
     print(f"SEARCH COUNT: {search_count}")
 
@@ -108,7 +109,7 @@ def _process_one_search(ricerca, search_count, pages_to_scrape):
         ricerca, search_count, pages_to_scrape, get_images=True
     )
 
-    print(f"Scraped data first 5 items of {ricerca['folder']}:")
+    print(f"Scraped data first 5 items of {ricerca.folder}:")
     print(scraped_data[:5])
 
     scraped_df = pd.DataFrame(scraped_data, columns=COLUMNS)
@@ -185,7 +186,8 @@ def scrapeSpecificItems_parallel(
                 try:
                     summaries.append(fut.result())
                 except Exception as e:
-                    print(f"[WARN] One search failed: {e}")
+                    print(f"[WARN] One search failed: {type(e).__name__}: {repr(e)}")
+                    traceback.print_exc()
 
         # Send Telegram notifications *serially* to avoid API rate limits
         for s in summaries:

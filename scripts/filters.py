@@ -86,8 +86,17 @@ def find_brand_ids(driver, filters):
 def find_color_ids(color_list):
     color_ids = []
     for color in color_list:
-        color_ids.append(search.colori[color])
+        c = (color or "").strip().lower()
+        if not c:
+            continue  # skip empty entries
+
+        if c not in search.colori:
+            print(f"[WARN] Unknown color '{c}' (skipping)")
+            continue
+
+        color_ids.append(search.colori[c])
     return color_ids
+
 
 
 
