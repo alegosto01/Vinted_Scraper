@@ -300,5 +300,5 @@ def scrapeToGetManuallyFilteredItems(programmed_searches):
         time.sleep(300) #300  # Sleep to avoid hitting the server too fast
 
 
-sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/jbl_charge_5/old_df.csv")
-print(sold)
+# sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/jbl_charge_5/old_df.csv")
+# print(sold)

@@ -12,6 +12,9 @@
 
 
 
+from matplotlib.pyplot import box
+
+
 top_tshirt_fendi = {"search":" ",
                "prezzoDa":" ",
                "prezzoA":" ",
@@ -66,6 +69,7 @@ jbl_charge_5 = {"search":"JBL Charge 5",
                 "brands":"JBL",
                 "sort":"newest_first",
                 "category": " ",
+                "wrong_words": "quantum, live, pulse, headphone, headphones, headset, earphones, earbuds, partybox, flip, go, xtreme, boombox, 3, 4, 6, charge 3, charge 4, charge 6, cover, case, custodia, pouch, sleeve, supporto, supporti, stand, stands, dock, docks, mount, mounts, holder, holders, clip, strap, tracolla, charger, charging, carica, powerbank, battery, batteria, cavo, cable, usb, usb-c, usbc, micro-usb, adapter, adattatore, alimentatore, broken, rotto, non funziona, repair, ricambi, box, scatola, manuale, instructions",                      
                 "folder": "jbl_charge_5"}
 
 instant_crush_120ml = {"search":"Instant Crush Mancera 120ml",
