@@ -5,3 +5,8 @@
 
 # large generated data
 /data/*.pt
+
+# python
+__pycache__/
+*.pyc
+.env
