@@ -2,3 +2,6 @@
 *.png
 *.jpg
 *.jpeg
+
+# large generated data
+/data/*.pt
