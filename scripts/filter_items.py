@@ -8,7 +8,6 @@ import math
 
 data_folder_simple_scrape = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
 searches_yaml = "/home/ale/Desktop/Vinted_New_Version/data/searches.yaml"
-gpt_hey = "REMOVED_OPENAI_KEY"
 
 def removeRowsContainingWrongWords(df_item, wrong_words):
     df_cleaned = df_item.copy()
