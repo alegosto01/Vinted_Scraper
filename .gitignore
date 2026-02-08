@@ -5,6 +5,10 @@
 
 # large generated data
 /data/*.pt
+.env
+__pycache__/
+*.pyc
+data/*.pt
 
 # python
 __pycache__/

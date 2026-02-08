@@ -6,8 +6,6 @@ import clip
 import math
 
 
-from chat_gpt import generate_negative_keywords_csv
-
 data_folder_simple_scrape = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
 searches_yaml = "/home/ale/Desktop/Vinted_New_Version/data/searches.yaml"
 gpt_hey = "REMOVED_OPENAI_KEY"

@@ -108,6 +108,7 @@ class Simple_scraper(Scraper):
             "Page": page + 1,
             "SearchCount": search_count,
             "MarketStatus": "On Sale",
+            "Processed": False
         }
 
 

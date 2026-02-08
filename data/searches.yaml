@@ -1,26 +1,55 @@
-jbl_charge_5:
-  search: "JBL Charge 5"
-  prezzoDa: "40"
-  prezzoA: " "
-  condition: "6-1"
-  colore: ""
-  brands: "JBL"
-  sort: "newest_first"
-  category: " "
-  folder: "jbl_charge_5"
-  enabled: true
-  tags: [electronics, speaker, jbl]
+# jbl_charge_5:
+#   search: "JBL Charge 5"
+#   prezzoDa: "40"
+#   prezzoA: " "
+#   condition: "6-1"
+#   colore: ""
+#   brands: "JBL"
+#   sort: "newest_first"
+#   category: " "
+#   folder: "jbl_charge_5"
+#   enabled: true
+#   tags: [electronics, speaker, jbl]
 
-spiderman_2_ps5:
-  search: "Spiderman 2 PS5"
+# spiderman_2_ps5:
+#   search: "Spiderman 2 PS5"
+#   prezzoDa: " "
+#   prezzoA: " "
+#   condition: "1"
+#   colore: " "
+#   brands: " "
+#   sort: "newest_first"
+#   category: " "
+#   folder: "spiderman_2_ps5"
+#   enabled: false
+#   tags: [game, ps5]
+
+ps4:
+  search: "PlayStation 4"
   prezzoDa: " "
   prezzoA: " "
-  condition: "1"
+  condition: "6-1"
   colore: " "
   brands: " "
   sort: "newest_first"
   category: " "
-  folder: "spiderman_2_ps5"
-  enabled: false
-  tags: [game, ps5]
+  folder: "ps4"
+  enabled: true
+  tags: []
+
+
+gucci:
+  search: "Gucci"
+  prezzoDa: " "
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: " "
+  folder: "gucci"
+  enabled: true
+  tags: []
+
+
 
