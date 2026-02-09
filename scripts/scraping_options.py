@@ -314,6 +314,8 @@ def scrapeSpecificItems_parallel(
 
         # --- ANALYZE (serial, safe) ---
         # process only the new items, and update DB + stream file
+
+        
         for s in summaries:
             new_df = s["new_df"]
             if new_df is None or new_df.empty:
