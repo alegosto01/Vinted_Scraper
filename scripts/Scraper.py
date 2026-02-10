@@ -1,3 +1,4 @@
+import requests
 from selenium.webdriver.common.by import By
 import time
 import pandas as pd
@@ -12,6 +13,9 @@ from selenium.webdriver.chromium.remote_connection import ChromiumRemoteConnecti
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from datetime import datetime
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 #scraping browser proxy
 AUTH = 'brd-customer-hl_c6889560-zone-scraping_browser1:wu62tqar4piy'
 SBR_WEBDRIVER = f'https://{AUTH}@zproxy.lum-superproxy.io:9515'
@@ -64,6 +68,80 @@ class Scraper:
         print("Failed to load the page after multiple attempts.")
         return None
 
+
+    def get_page_content_residential(self, url, timeout=40, sleep=10):
+        """
+        Fetch raw HTML using Bright Data residential proxy
+        """
+
+        # ================= Bright Data proxy config =================
+        host = 'brd.superproxy.io'
+        port = 33335
+
+        username = 'brd-customer-hl_c6889560-zone-residential_proxy1'
+        password = 'jt215h4idjjn'
+
+        proxy_url = f'http://{username}:{password}@{host}:{port}'
+
+        proxies = {
+            'http': proxy_url,
+            'https': proxy_url
+        }
+
+        # ================= Session + retries =================
+        session = requests.Session()
+
+        retries = Retry(
+            total=5,
+            backoff_factor=1.5,
+            status_forcelist=[403, 429, 500, 502, 503, 504],
+            allowed_methods=["GET"]
+        )
+
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        # ================= Headers =================
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": "https://www.vinted.it/",
+            "Connection": "keep-alive"
+        }
+
+
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            # ================= Request =================
+            try:
+                response = session.get(
+                    url,
+                    headers=headers,
+                    proxies=proxies,
+                    timeout = (15, 400),   # 15s to connect, 400s to read
+                    verify=False
+                )
+
+                time.sleep(sleep)
+
+                if response.status_code == 200:
+                    return response.text
+
+                else:
+                    print(f"[!] Failed: {response.status_code}")
+                    print(response.text[:200])
+                    return None
+
+            except requests.exceptions.RequestException as e:
+                print("[!] Request error:", e)
+                return None
     def get_page_content(self, url, timeout=100, sleep=10):
         success = False
         attempts = 0

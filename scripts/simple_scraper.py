@@ -11,6 +11,7 @@ import tracemalloc
 import re
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import requests_html
 
 
 
@@ -125,9 +126,29 @@ class Simple_scraper(Scraper):
             new_webpage = webpage + "&page=" + str(page+1)
             print(f"I'm searching in {new_webpage}")
 
-            html_content = self.get_page_content(new_webpage)
-            time.sleep(7)
+            html_text = self.get_page_content_residential(new_webpage)
 
+            if not isinstance(html_text, str) or not html_text.strip():
+                print("[!] html_text is empty/None. Skipping page.")
+                page += 1
+                continue
+            
+   
+            try:
+                html_content = requests_html.HTML(html=html_text)
+            except Exception as e:
+                print("[!] Crash while parsing HTML():", repr(e))
+                # Save only if it's a real string
+                try:
+                    with open("debug_vinted_page.html", "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(html_text)
+                    print("[!] Saved failing HTML to debug_vinted_page.html")
+                except Exception as e2:
+                    print("[!] Could not save debug HTML:", repr(e2))
+                page += 1
+                continue
+            time.sleep(7)
+    
             products = html_content.find('.new-item-box__container')
             all_likes_counts = html_content.find('.u-background-white.u-flexbox.u-align-items-center.new-item-box__favourite-icon')
 

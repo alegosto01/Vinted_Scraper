@@ -51,5 +51,16 @@ gucci:
   enabled: true
   tags: []
 
-
+prada:
+  search: "Prada"
+  prezzoDa: " "
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: " "
+  folder: "prada"
+  enabled: true
+  tags: []
 

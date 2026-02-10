@@ -290,9 +290,12 @@ def scrapeSpecificItems_parallel(
     search_workers=4,
     max_search_counts=500,
     delay_between_jobs=5,
+    delay_between_batch_of_searches=900,
+    mode="collect",  # <-- NEW: "collect" or "online"
 ):
-    stream_path = "./out/stream_assigned.csv"
-    db_path = "./out/index.sqlite"
+    output_folder = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
+    stream_path = os.path.join(output_folder, "stream_assigned.csv")
+    db_path = os.path.join(output_folder, "index.sqlite")
 
     for search_count in range(1, max_search_counts + 1):
         summaries = []
@@ -312,32 +315,59 @@ def scrapeSpecificItems_parallel(
                     print(f"[WARN] One search failed: {type(e).__name__}: {repr(e)}")
                     traceback.print_exc()
 
-        # --- ANALYZE (serial, safe) ---
-        # process only the new items, and update DB + stream file
 
-        
+        # --- POST (serial) ---
         for s in summaries:
-            new_df = s["new_df"]
+            new_df = s.get("new_df")
             if new_df is None or new_df.empty:
                 continue
 
+            # Always dedupe within-batch (important!)
+            if "Dataid" in new_df.columns:
+                new_df = new_df.drop_duplicates(subset=["Dataid"])
+            elif "Link" in new_df.columns:
+                new_df = new_df.drop_duplicates(subset=["Link"])
+
+            # Optional: add search_count + search name so raw csv is traceable
+            new_df = new_df.copy()
+            new_df["SearchCount"] = search_count
             try:
-                assigned_df = process_new_df(
-                    new_df,
-                    db_path=db_path,
-                    price_buffer_size=200
-                )
-                append_csv_atomic(assigned_df, stream_path)
+                new_df["SearchName"] = s.get("ricerca", {}).get("search", "")
+            except:
+                new_df["SearchName"] = ""
 
-                # If you want: filter deals here and send Telegram now (serial)
-                # e.g. top deals:
-                # deals = assigned_df[(assigned_df["DealScore"] >= 2.0) & (assigned_df["ProductId"] != -1)]
-                # if not deals.empty:
-                #     send_batch_items_to_telegram.send_new_items_to_telegram(deals, bot_token, telegram_chat_id)
 
-            except Exception as e:
-                print(f"[WARN] Analysis failed for {s['ricerca'].search}: {type(e).__name__}: {e}")
-                traceback.print_exc()
+            if mode == "collect":
+                # Phase A: just accumulate raw data
+                try:
+                    raw_path = os.path.join(output_folder, "big_raw.csv")
+                    append_csv_atomic(new_df, raw_path)
+                except Exception as e:
+                    print(f"[WARN] Raw append failed: {type(e).__name__}: {e}")
+                    traceback.print_exc()
+
+            elif mode == "online":
+                # Phase C: current online assignment + scoring
+                try:
+                    assigned_df = process_new_df(
+                        new_df,
+                        db_path=db_path,
+                        price_buffer_size=200
+                    )
+                    append_csv_atomic(assigned_df, stream_path)
+
+                    # optional telegram here (serial)
+                    # deals = assigned_df[(assigned_df["DealScore"] >= 2.0) & (assigned_df["ProductId"] != -1)]
+                    # if not deals.empty:
+                    #     send_new_items_to_telegram(deals, bot_token, telegram_chat_id)
+
+                except Exception as e:
+                    print(f"[WARN] Analysis failed for search: {type(e).__name__}: {e}")
+                    traceback.print_exc()
+
+            else:
+                raise ValueError("mode must be 'collect' or 'online'")
+
 
         print(f"Completed search_count {search_count}")
         print("Waiting before next search_count...")
