@@ -284,7 +284,7 @@ def _process_one_search(ricerca, search_count, pages_to_scrape):
 
 def scrapeSpecificItems_parallel(
     programmed_searches,
-    pages_to_scrape=1,
+    pages_to_scrape=10,
     bot_token=bot_token,
     telegram_chat_id=telegram_chat_id,
     search_workers=4,
@@ -294,7 +294,10 @@ def scrapeSpecificItems_parallel(
     mode="collect",  # <-- NEW: "collect" or "online"
 ):
     output_folder = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
-    stream_path = os.path.join(output_folder, "stream_assigned.csv")
+    global_stream = os.path.join(output_folder, "stream_assigned_all.csv")
+    os.makedirs(os.path.dirname(global_stream), exist_ok=True)
+
+
     db_path = os.path.join(output_folder, "index.sqlite")
 
     for search_count in range(1, max_search_counts + 1):
@@ -315,7 +318,8 @@ def scrapeSpecificItems_parallel(
                     print(f"[WARN] One search failed: {type(e).__name__}: {repr(e)}")
                     traceback.print_exc()
 
-
+        print(f"Completed search_count {search_count}")
+        print(f"Waiting before next search_count...")
         # --- POST (serial) ---
         for s in summaries:
             new_df = s.get("new_df")
@@ -330,17 +334,26 @@ def scrapeSpecificItems_parallel(
 
             # Optional: add search_count + search name so raw csv is traceable
             new_df = new_df.copy()
+
+            
             new_df["SearchCount"] = search_count
+
             try:
-                new_df["SearchName"] = s.get("ricerca", {}).get("search", "")
+                search_name = s["ricerca"].search
+                new_df["SearchName"] = search_name
             except:
+                print("[WARN] Could not set SearchName column, missing 'search' attribute in ricerca")
                 new_df["SearchName"] = ""
+                search_name = ""
 
 
             if mode == "collect":
                 # Phase A: just accumulate raw data
                 try:
-                    raw_path = os.path.join(output_folder, "big_raw.csv")
+                    print("Appending new items to raw CSV...")
+                    print(f"search_name: {search_name}, new items: {len(new_df)}")
+                    raw_path = os.path.join(output_folder, search_name, "big_raw.csv")
+                    os.makedirs(os.path.dirname(raw_path), exist_ok=True)
                     append_csv_atomic(new_df, raw_path)
                 except Exception as e:
                     print(f"[WARN] Raw append failed: {type(e).__name__}: {e}")
@@ -354,7 +367,10 @@ def scrapeSpecificItems_parallel(
                         db_path=db_path,
                         price_buffer_size=200
                     )
-                    append_csv_atomic(assigned_df, stream_path)
+                    per_search_stream = os.path.join(output_folder, search_name, "stream_assigned.csv")
+                    os.makedirs(os.path.dirname(per_search_stream), exist_ok=True)
+                    append_csv_atomic(assigned_df, per_search_stream)
+                    append_csv_atomic(assigned_df, global_stream)
 
                     # optional telegram here (serial)
                     # deals = assigned_df[(assigned_df["DealScore"] >= 2.0) & (assigned_df["ProductId"] != -1)]
@@ -378,27 +394,33 @@ def scrapeSpecificItems_parallel(
 
 
 def _check_sold_with_own_driver(row):
-    driver = utils_scraping.make_driver()
+    print(f"Checking if item {row['Dataid']} is sold...")
+    # driver = utils_scraping.make_driver()
+    scraper = Simple_scraper()
     try:
         status, upload_date = "On Sale", "Unknown"
         url = row["Link"]
-        html = driver.get_page_content(url, timeout=60, sleep=50)
+        html = scraper.get_page_content(url, timeout=60, sleep=50)
         if html:
             el_status = html.find('div[data-testid="item-status--content"]', first=True)
             el_upload = html.find('div[itemprop="upload_date"]', first=True)
+            print(f"Checked item {row['Dataid']}: status='{getattr(el_status, 'text', None)}', upload='{getattr(el_upload, 'text', None)}'")
             if el_upload and getattr(el_upload, "text", None):
                 upload_date = el_upload.text
             if el_status and getattr(el_status, "text", "") == "Venduto":
                 status = "Sold"
+        else:
+            print(f"Failed to load page for item {row['Dataid']}")
         return row.name, status, upload_date   # return index + result
     
     except Exception:
+        print(f"Error checking item {row['Dataid']}: {traceback.format_exc()}")
         return row.name, "On Sale", "Unknown"
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+    # finally:
+    #     try:
+    #         driver.quit()
+    #     except Exception:
+    #         pass
 
 def returnNewSoldItemsInCsv_parallel(csv, max_workers=6, delay=0.5):
     df = pd.read_csv(csv)
@@ -475,5 +497,5 @@ def scrapeToGetManuallyFilteredItems(programmed_searches):
         time.sleep(300) #300  # Sleep to avoid hitting the server too fast
 
 
-# sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/jbl_charge_5/old_df.csv")
+# sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/Vinted_New_Version/out/deals_ranked.csv")
 # print(sold)
