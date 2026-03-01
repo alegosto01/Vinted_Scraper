@@ -1,4 +1,4 @@
-from numpy import NaN
+import numpy as np
 import utils
 import os
 import pandas as pd

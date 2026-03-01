@@ -266,11 +266,34 @@ def _process_one_search(ricerca, search_count, pages_to_scrape):
 
     print(f"From the scraped items ({len(scraped_df)}), {len(new_df)} are new")
 
+
+
+    print(f"finished search_name: {ricerca.folder}, new items processed: {len(new_df)} i ll check sold items")
+
+    print("Compare and save only if the search is close to the last one, otherwise evethything will appear as new")
+    bool_compare_and_save = True
+    if not new_df.empty and not old_df.empty:
+        last_old_date = pd.to_datetime(old_df.iloc[-1]["SearchDate"])
+        last_new_date = pd.to_datetime(new_df.iloc[-1]["SearchDate"])
+        time_diff = last_new_date - last_old_date
+        print(f"Time difference: {time_diff}")
+        if time_diff < pd.Timedelta(minutes=600):
+            
+            simple_scraper.compare_and_save_df_serial(
+                new_df, old_df, unsold_df_path=output_folder + "/unsold_df.csv", sold_df_path=output_folder + "/sold_df.csv", non_really_sold_items_ids_df_path=output_folder + "/non_really_sold_items_ids.csv", output_folder=output_folder
+            )
+        else:
+            bool_compare_and_save = False
+            print("Skipp compare and save because the new search is too far from the last one, probably a new search_count tick, everything will appear as new")
+
+
     # persist old_df.csv atomically (thread-safe per folder)
-    combined = pd.concat([old_df, new_df], ignore_index=True)
-    tmp_path = pathfile_old_df_item + ".tmp"
-    combined.to_csv(tmp_path, index=False)
-    os.replace(tmp_path, pathfile_old_df_item)
+    if not bool_compare_and_save:
+        # if we skipped compare_and_save, we just append new_df to old_df without marking items as sold (to avoid losing data)  
+        combined = pd.concat([old_df, new_df], ignore_index=True)
+        tmp_path = pathfile_old_df_item + ".tmp"
+        combined.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, pathfile_old_df_item)
 
     return {
         "ricerca": ricerca,
@@ -290,7 +313,7 @@ def scrapeSpecificItems_parallel(
     search_workers=4,
     max_search_counts=500,
     delay_between_jobs=5,
-    delay_between_batch_of_searches=900,
+    delay_between_batch_of_searches=900, 
     mode="collect",  # <-- NEW: "collect" or "online"
 ):
     output_folder = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
@@ -339,20 +362,20 @@ def scrapeSpecificItems_parallel(
             new_df["SearchCount"] = search_count
 
             try:
-                search_name = s["ricerca"].search
-                new_df["SearchName"] = search_name
+                folder_name = s["ricerca"].folder
+                new_df["SearchName"] = folder_name
             except:
                 print("[WARN] Could not set SearchName column, missing 'search' attribute in ricerca")
                 new_df["SearchName"] = ""
-                search_name = ""
+                folder_name = ""
 
 
             if mode == "collect":
                 # Phase A: just accumulate raw data
                 try:
                     print("Appending new items to raw CSV...")
-                    print(f"search_name: {search_name}, new items: {len(new_df)}")
-                    raw_path = os.path.join(output_folder, search_name, "big_raw.csv")
+                    print(f"search_name: {folder_name}, new items: {len(new_df)}")
+                    raw_path = os.path.join(output_folder, folder_name, "big_raw.csv")
                     os.makedirs(os.path.dirname(raw_path), exist_ok=True)
                     append_csv_atomic(new_df, raw_path)
                 except Exception as e:
@@ -367,7 +390,7 @@ def scrapeSpecificItems_parallel(
                         db_path=db_path,
                         price_buffer_size=200
                     )
-                    per_search_stream = os.path.join(output_folder, search_name, "stream_assigned.csv")
+                    per_search_stream = os.path.join(output_folder, folder_name, "stream_assigned.csv")
                     os.makedirs(os.path.dirname(per_search_stream), exist_ok=True)
                     append_csv_atomic(assigned_df, per_search_stream)
                     append_csv_atomic(assigned_df, global_stream)
@@ -383,11 +406,14 @@ def scrapeSpecificItems_parallel(
 
             else:
                 raise ValueError("mode must be 'collect' or 'online'")
+            
+            print(f"finished search_name: {folder_name}, new items processed: {len(new_df)}")
+
 
 
         print(f"Completed search_count {search_count}")
         print("Waiting before next search_count...")
-        time.sleep(600)
+        time.sleep(delay_between_batch_of_searches)
 # Worker: create & close its own driver
 
 ##### ABOVE NEW VERSION WITH ALL THE ANALYSIS IN THE MAIN THREAD  08/02/2026 ######################à

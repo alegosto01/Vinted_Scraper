@@ -107,6 +107,7 @@ class Simple_scraper(Scraper):
             "Dataid": data_id,
             "Images": img,
             "Page": page + 1,
+            "SearchDate": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "SearchCount": search_count,
             "MarketStatus": "On Sale",
             "Processed": False
@@ -170,9 +171,12 @@ class Simple_scraper(Scraper):
 
         return data
 
-    def remove_not_actually_sold_items(self, new_df, old_df, non_really_sold_items_ids):
+    def remove_not_actually_sold_items(self, new_df, old_df, non_really_sold_items_ids_df_path):
         print("I'm removing items that are already present in old_df")
         print(f"Len before dropping duplicates = {len(new_df)}")
+        
+        non_really_sold_df = pd.read_csv(non_really_sold_items_ids_df_path) if os.path.exists(non_really_sold_items_ids_df_path) else pd.DataFrame(columns=["Dataid"])
+
 
         if len(new_df) == 0:
             print("No new items to process.")
@@ -210,7 +214,7 @@ class Simple_scraper(Scraper):
 
         if len(items_sold_to_check) > 0:
             print(f"Before removing non really sold {len(items_sold_to_check)}")
-            items_sold_to_check = items_sold_to_check[~items_sold_to_check['Dataid'].isin(non_really_sold_items_ids)]
+            items_sold_to_check = items_sold_to_check[~items_sold_to_check['Dataid'].isin(non_really_sold_df["Dataid"])]
             print(f"After removing non really sold {len(items_sold_to_check)}")
             # items_sold_to_check = items_sold_to_check[~items_sold_to_check['Dataid'].isin(list(full_scraped_df["Dataid"].values))]
         
@@ -234,74 +238,104 @@ class Simple_scraper(Scraper):
                 else:
                     if status == "On Sale":
                         try:
-                            non_really_sold_items_ids.add(int(item["Dataid"]))
+                            new_row = pd.DataFrame([{"Dataid": int(item["Dataid"])}])
+                            non_really_sold_df = pd.concat([non_really_sold_df, new_row], ignore_index=True)                            # non_really_sold_items_ids.add(int(item["Dataid"]))
                             old_df.loc[old_df["Link"] == item["Link"], "MarketStatus"] = "On Sale"
                         except:
                             print("problems casting dataid with item")
                     print(f"Item not sold: {item['Title']}")
 
         print("Parallel scraping complete.")
+        non_really_sold_df.to_csv(non_really_sold_items_ids_df_path, index=False)
+        print(f"Actually sold items count: {len(actually_sold_items)}")
 
 
         return new_df, old_df, actually_sold_items
 
-    def remove_and_manage_old_items_in_search(self, old_df, new_df, unsold_full_scraped):
-
+    def remove_and_manage_old_items_in_search(self, old_df, new_df, unsold_df_path):
         print("I'm about to drop items in the old_df to make space for the new ones")
-
 
         new_items_count = len(new_df)
 
+        # ✅ ALWAYS initialize unsold_df so it's defined even if we never enter the while
+        if os.path.exists(unsold_df_path):
+            try:
+                unsold_df = pd.read_csv(unsold_df_path)
+                print(f"Loaded unsold_df with {len(unsold_df)} items")
+            except Exception as e:
+                print(f"[WARN] Failed reading {unsold_df_path}: {e}. Initializing empty unsold_df.")
+                unsold_df = pd.DataFrame(columns=old_df.columns)
+        else:
+            print(f"{unsold_df_path} does not exist. Initializing empty unsold_df DataFrame.")
+            unsold_df = pd.DataFrame(columns=old_df.columns)
+
         # Make space for the new items deleting the most old ones
         min_search = old_df["SearchCount"].min()
-        max_pag = old_df["Page"].max()
+        filtered_old_df = old_df[old_df["SearchCount"] == min_search]
+        max_pag = filtered_old_df["Page"].max()
+
         if new_items_count:
             while len(old_df) + new_items_count > 900:
                 print(f"Before drop: LEN = {len(old_df)}, New Items Count = {new_items_count}")
-                
                 print(f"Min SearchCount: {min_search}, Max Page: {max_pag}")
+
                 rows_to_drop = old_df[(old_df["SearchCount"] == min_search) & (old_df["Page"] == max_pag)]
-                
+
                 if rows_to_drop.empty:
                     print("No rows to drop, breaking to avoid infinite loop.")
-                else:        
-                    unsold_full_scraped = pd.concat([unsold_full_scraped, rows_to_drop], ignore_index=True)
+                    break  # ✅ you should break here, otherwise infinite loop
+                else:
+                    unsold_df = pd.concat([unsold_df, rows_to_drop], ignore_index=True)
                     old_df = old_df.drop(rows_to_drop.index)
                     print(f"After drop: LEN = {len(old_df)}")
-                
+
                 if max_pag == 1:
                     min_search += 1
                     max_pag = 10
                 else:
-                    max_pag -= 1            
-        
-        return old_df, unsold_full_scraped
-        
+                    max_pag -= 1
 
-    def compare_and_save_df_serial(self, new_df, old_df, unsold_full_scraped_df, sold_full_scraped_df,  non_really_sold_items_ids, output_folder):
+        print(f"Saving unsold_df with {len(unsold_df)} items")
+        unsold_df.to_csv(unsold_df_path, index=False)
+
+        return old_df, unsold_df
+
+    def compare_and_save_df_serial(self, new_df, old_df, unsold_df_path, sold_df_path,  non_really_sold_items_ids_df_path, output_folder):
         print("in compare and save")
 
         # returns updated new_df, old_df and actually_sold_items
-        # new_df, old_df, actually_sold_items = self.remove_not_actually_sold_items(new_df, old_df, non_really_sold_items_ids)
+        new_df, old_df, actually_sold_items = self.remove_not_actually_sold_items(new_df, old_df, non_really_sold_items_ids_df_path)
 
 
-        # if not actually_sold_items:
-        #     print("No actually sold items found.")
-        #     # Store the actully sold items
-        # else:
-        #     new_sold_df = pd.DataFrame(actually_sold_items)        
-        #     sold_full_scraped_df = pd.concat([sold_full_scraped_df, new_sold_df], ignore_index=True)
-        #     sold_full_scraped_df.to_csv(f"{output_folder}/sold_df.csv", index=False)
-        #     print(f"Actually sold items: {len(actually_sold_items)}")
+        if not actually_sold_items:
+            print("No actually sold items found.")
+            # Store the actully sold items
+        else:
+            new_sold_df = pd.DataFrame(actually_sold_items)   
 
-        # # Remove and manage old items in the search
-        # old_df, unsold_full_scraped_df = self.remove_and_manage_old_items_in_search(old_df, new_df, unsold_full_scraped_df)
+            if os.path.exists(sold_df_path):
+                sold_df = pd.read_csv(sold_df_path)
+                sold_df = pd.concat([sold_df, new_sold_df], ignore_index=True)
+            else:
+                sold_df = new_sold_df
+            sold_df.to_csv(sold_df_path, index=False)
+            print(f"Actually sold items: {len(actually_sold_items)}")
 
-        # unsold_full_scraped_df.to_csv(f"{output_folder}/unsold_df.csv", index=False)
+
+        # Remove and manage old items in the search
+        old_df, unsold_df = self.remove_and_manage_old_items_in_search(old_df, new_df, unsold_df_path)
+
 
         if len(new_df) == 0:
             print("No new items to process.")
         else:
+            print(f"New items to add to old_df: {len(new_df)}")
+            print(f"Old_df before concat: {len(old_df)}")
+
             old_df = pd.concat([old_df, new_df], ignore_index=True)
+            print(f"Old_df after concat: {len(old_df)}")
             old_df.drop_duplicates(subset=["Dataid"], keep='first', inplace=True)
+            print(f"Old_df after dropping duplicates: {len(old_df)}")
+            print(f"saving old_df in {output_folder}/old_df.csv")
             old_df.to_csv(f"{output_folder}/old_df.csv", index=False)
+            print("Saved old_df.csv")
