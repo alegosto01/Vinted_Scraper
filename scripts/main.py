@@ -33,7 +33,7 @@ def main():
         s for s in searches.values() if s.enabled
     ]
 
-    scraping_options.scrapeSpecificItems_parallel(programmed_searches, pages_to_scrape=10, delay_between_batch_of_searches=3600, max_search_counts=12)
+    scraping_options.scrapeSpecificItems_parallel(programmed_searches, pages_to_scrape=10, delay_between_batch_of_searches=3600, max_search_counts=100)
 
 
 

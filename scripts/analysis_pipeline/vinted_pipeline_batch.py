@@ -25,7 +25,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 
-import vinted_index_store as store
+import vinted_index_score as score
 
 # ---------- text utils ----------
 ALIAS_MAP = {
@@ -257,7 +257,7 @@ def run(args):
     if args.make_plots:
         os.makedirs(plots_dir, exist_ok=True)
 
-    con = store.connect(args.db)
+    con = score.connect(args.db)
 
     df = pd.read_csv(args.input)
     df["Title_norm"] = df["Title"].apply(normalize_text)
@@ -319,7 +319,7 @@ def run(args):
             core_frac, vthr, pwt = args.core_frac, args.variant_threshold, args.variant_price_weight
 
         # save product to DB
-        store.upsert_product(
+        score.upsert_product(
             con,
             product_id=int(pid),
             centroid=centroid,
@@ -338,7 +338,7 @@ def run(args):
             g["VariantId"] = next_vid
             # variant centroid = embed("") basically: use product centroid slice as proxy (ok)
             vcentroid = np.zeros(X.shape[1] + 1, dtype=np.float32)
-            store.upsert_variant(con, next_vid, int(pid), vcentroid, int(len(g)), float(vthr), float(pwt), float(core_frac), [], "")
+            score.upsert_variant(con, next_vid, int(pid), vcentroid, int(len(g)), float(vthr), float(pwt), float(core_frac), [], "")
             next_vid += 1
             df_parts.append(g)
             continue
@@ -362,7 +362,7 @@ def run(args):
             sil = np.nan
         trust_rows.append({"ProductId": int(pid), "n": int(len(g)), "VariantsFound": int(len(np.unique(vlabs))), "VariantSilhouette": sil})
 
-        # store variants in DB
+        # score variants in DB
         for lab in sorted(np.unique(vlabs)):
             members = g.index[g["VariantId_local"] == lab].to_list()
             vid = local_to_global[int(lab)]
@@ -376,7 +376,7 @@ def run(args):
                 vtoks.extend(tokenize(s))
             top_v = " ".join([w for w, _ in Counter(vtoks).most_common(8)])
 
-            store.upsert_variant(con, int(vid), int(pid), vcentroid, int(len(members)), float(vthr), float(pwt), float(core_frac), buf, top_v)
+            score.upsert_variant(con, int(vid), int(pid), vcentroid, int(len(members)), float(vthr), float(pwt), float(core_frac), buf, top_v)
 
             # variant summary row
             pnum = pd.to_numeric(g.loc[members, "Price"], errors="coerce").to_numpy()
@@ -440,8 +440,8 @@ def run(args):
     deals_ranked = deals_ranked.sort_values("DealScore", ascending=False)
     deals_ranked.to_csv(deals_out, index=False)
 
-    store.set_meta(con, "embedder", embedder_name)
-    store.set_meta(con, "model_name", args.model)
+    score.set_meta(con, "embedder", embedder_name)
+    score.set_meta(con, "model_name", args.model)
 
     print("✅ Batch complete")
     print(f"- Index DB: {args.db}")

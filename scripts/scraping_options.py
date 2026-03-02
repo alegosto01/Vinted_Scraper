@@ -383,11 +383,13 @@ def scrapeSpecificItems_parallel(
                     traceback.print_exc()
 
             elif mode == "online":
+                db_path_search = os.path.join(output_folder, folder_name, "index.sqlite")
+
                 # Phase C: current online assignment + scoring
                 try:
                     assigned_df = process_new_df(
                         new_df,
-                        db_path=db_path,
+                        db_path=db_path_search,
                         price_buffer_size=200
                     )
                     per_search_stream = os.path.join(output_folder, folder_name, "stream_assigned.csv")
