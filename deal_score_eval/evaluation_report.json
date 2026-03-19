@@ -1,0 +1,29 @@
+{
+  "n_deals_rows": 12787,
+  "n_unique_sold_ids": 158,
+  "n_rows_labeled_sold": 112,
+  "overall_sold_rate": 0.008758895753499647,
+  "mean_score_sold": 1.3580211254635028,
+  "mean_score_unsold": -0.017674690352812033,
+  "best_precision_at_k": {
+    "TopK": 10.0,
+    "SoldRate": 0.1,
+    "SoldCount": 1.0,
+    "Count": 10.0
+  },
+  "output_files": [
+    "correlation_summary.csv",
+    "deals_ranked_labeled.csv",
+    "dealscore_distribution_sold_vs_unsold.png",
+    "false_negatives_low_score_sold.csv",
+    "false_positives_high_score_unsold.csv",
+    "overall_sold_vs_unsold_summary.csv",
+    "precision_at_k.csv",
+    "precision_at_k.png",
+    "sell_rate_by_score_bin.csv",
+    "sell_rate_by_score_bin.png",
+    "summary_by_product.csv",
+    "summary_by_search.csv",
+    "summary_by_variant.csv"
+  ]
+}

@@ -17,6 +17,10 @@ import utils
 import filter_items
 from analysis_pipeline.vinted_pipeline_incremental import process_new_df
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
 columns_seller = ["SellerId", "SellerName", "Location", "ReviewsCount", "Stars"]
 COLUMNS = ['Title','Price','Brand','Size','Link','Likes','Dataid',
            'MarketStatus','SearchDate','Upload_date','Images','SearchCount','Page']
@@ -101,139 +105,6 @@ def scrapeSpecificItems_InSequence(programmed_searches):
 
         time.sleep(300) #300  # Sleep to avoid hitting the server too fast
 
-# def _process_one_search(ricerca, search_count, pages_to_scrape):
-#     """
-#     Runs ONE search (one 'ricerca'): scrape, dedup vs old_df.csv, persist, and return summary + new_df.
-#     This function is safe to run in parallel as long as each ricerca has its own folder.
-#     """
-#     output_folder = os.path.join(data_folder_simple_scrape, ricerca.folder)
-#     os.makedirs(output_folder, exist_ok=True)
-#     pathfile_old_df_item = os.path.join(output_folder, "old_df.csv")
-
-#     print(f"SEARCH: {ricerca.search}")
-#     print("-" * 20)
-#     print(f"SEARCH COUNT: {search_count}")
-
-#     # Create a fresh scraper per thread (drivers/parsers are rarely thread-safe)
-#     simple_scraper = Simple_scraper()
-
-#     scraped_data = simple_scraper.scrape_products_serial(
-#         ricerca, search_count, pages_to_scrape, get_images=True
-#     )
-
-#     print(f"Scraped data first 5 items of {ricerca.folder}:")
-#     print(scraped_data[:5])
-
-#     scraped_df = pd.DataFrame(scraped_data, columns=COLUMNS)
-#     print(f"I Scraped {len(scraped_df)} items")
-
-#     # Load previous items for this ricerca
-#     if os.path.exists(pathfile_old_df_item):
-#         old_df = pd.read_csv(pathfile_old_df_item)
-#     else:
-#         old_df = pd.DataFrame(columns=COLUMNS)
-
-    
-#     items_already_stored = []
-
-#     for index, row in scraped_df.iterrows():
-#         if int(row["Dataid"]) in old_df["Dataid"].values:
-#             items_already_stored.append(index)
-
-#     new_df = scraped_df.drop(items_already_stored).reset_index(drop=True)
-#     print(f"From the scraped items ({len(scraped_df)}), {len(new_df)} are new")
-
-#     if len(new_df) > 0:
-#         assigned_df = process_new_df(
-#             new_df,
-#             db_path="./out/index.sqlite",
-#             price_buffer_size=200
-#         )
-
-#         # optional: append assigned rows somewhere
-#         stream_path = "./out/stream_assigned.csv"
-#         if os.path.exists(stream_path):
-#             prev = pd.read_csv(stream_path)
-#             pd.concat([prev, assigned_df], ignore_index=True).to_csv(stream_path, index=False)
-#         else:
-#             assigned_df.to_csv(stream_path, index=False)
-
-
-#     # print("Im going to filter out the items that are not what i was looking for")
-#     # utils.download_images_for_item_analysis(new_df, output_folder)
-
-#     # filter_items.filterOutItemsOutOfDescription(ricerca)
-
-
-
-#     # Append and write atomically to avoid partial writes if the process is interrupted
-#     combined = pd.concat([old_df, new_df], ignore_index=True)
-#     tmp_path = pathfile_old_df_item + ".tmp"
-#     combined.to_csv(tmp_path, index=False)
-#     os.replace(tmp_path, pathfile_old_df_item)
-
-#     # Return data to the caller (main thread can handle Telegram to avoid rate-limit collisions)
-#     return {
-#         "ricerca": ricerca,
-#         "search_count": search_count,
-#         "scraped": len(scraped_df),
-#         "new": len(new_df),
-#         "new_df": new_df
-#     }
-
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# def scrapeSpecificItems_parallel(
-#     programmed_searches,
-#     pages_to_scrape=1,
-#     bot_token=bot_token,
-#     telegram_chat_id=telegram_chat_id,
-#     search_workers=4,
-#     max_search_counts=500,
-#     delay_between_jobs=5,   # NEW: delay (seconds) between submitting each job
-# ):
-#     """
-#     Parallelizes across 'ricerca' for each search_count tick.
-#     'search_workers' caps parallelism to be polite to the target site.
-#     """
-#     for search_count in range(1, max_search_counts + 1):
-#         summaries = []
-
-#         # Run all ricerche for this count in parallel (staggered submissions)
-#         with ThreadPoolExecutor(max_workers=min(search_workers, len(programmed_searches))) as ex:
-#             futures = []
-#             for i, ricerca in enumerate(programmed_searches):
-#                 futures.append(ex.submit(_process_one_search, ricerca, search_count, pages_to_scrape))
-#                 # stagger launches to avoid bursty traffic
-#                 if i < len(programmed_searches) - 1:
-#                     time.sleep(delay_between_jobs)
-
-#             for fut in as_completed(futures):
-#                 try:
-#                     summaries.append(fut.result())
-#                 except Exception as e:
-#                     print(f"[WARN] One search failed: {type(e).__name__}: {repr(e)}")
-#                     traceback.print_exc()
-
-#             # # Send Telegram notifications *serially* to avoid API rate limits
-#             # for s in summaries:
-#             #     if s["search_count"] > 0 and not s["new_df"].empty:
-#             #         try:
-#             #             send_batch_items_to_telegram.send_new_items_to_telegram(
-#             #                 s["new_df"], bot_token, telegram_chat_id
-#             #             )
-#             #         except Exception as e:
-#             #             print(f"[WARN] Telegram send failed for {s['ricerca'].get('search')}: {e}")
-
-#         print(f"Completed search_count {search_count}")
-        
-#         print(f"Waiting before next search_count...")
-
-#         # Gentle pacing between search iterations
-#         time.sleep(600)
-
-##### NEW VERSION WITH ALL THE ANALYSIS IN THE MAIN THREAD  08/02/2026 ######################à
 
 def _process_one_search(ricerca, search_count, pages_to_scrape):
     output_folder = os.path.join(data_folder_simple_scrape, ricerca.folder)
@@ -416,9 +287,6 @@ def scrapeSpecificItems_parallel(
         print(f"Completed search_count {search_count}")
         print("Waiting before next search_count...")
         time.sleep(delay_between_batch_of_searches)
-# Worker: create & close its own driver
-
-##### ABOVE NEW VERSION WITH ALL THE ANALYSIS IN THE MAIN THREAD  08/02/2026 ######################à
 
 
 def _check_sold_with_own_driver(row):
