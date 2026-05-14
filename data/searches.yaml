@@ -26,7 +26,7 @@
 
 ps4:
   search: "PlayStation 4"
-  prezzoDa: " "
+  prezzoDa: "20"
   prezzoA: " "
   condition: "6-1"
   colore: " "
@@ -35,12 +35,13 @@ ps4:
   category: " "
   folder: "ps4"
   enabled: true
+  no_residential: true
   tags: []
 
 
 gucci:
   search: "Gucci"
-  prezzoDa: " "
+  prezzoDa: "20"
   prezzoA: " "
   condition: "6-1"
   colore: " "
@@ -49,11 +50,26 @@ gucci:
   category: " "
   folder: "gucci"
   enabled: true
+  no_residential: true
+  tags: []
+
+nike:
+  search: "Nike"
+  prezzoDa: "20"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: " "
+  folder: "nike"
+  enabled: true
+  no_residential: true
   tags: []
 
 prada:
   search: "Prada"
-  prezzoDa: " "
+  prezzoDa: "20"
   prezzoA: " "
   condition: "6-1"
   colore: " "
@@ -62,5 +78,86 @@ prada:
   category: " "
   folder: "prada"
   enabled: true
+  no_residential: true
   tags: []
 
+# borse_griffate:
+#   search: " "
+#   prezzoDa: " "
+#   prezzoA: " "
+#   condition: "6-1"
+#   colore: " "
+#   brands: " "
+#   sort: "newest_first"
+#   category: "Articoli Griffati/Articoli Griffati per Donna/Borse griffate"
+#   folder: "Borse_Griffate"
+#   enabled: true
+#   tags: []
+#   auto_schedule: true
+#   min_delay_minutes: 60
+#   max_delay_minutes: 120
+#   activity_window_hours: 24
+#   default_delay_minutes: 60
+#   target_value_per_run: 3.0
+#   good_deal_weight: 1.0
+#   fast_sale_weight: 2.0
+#   sold_weight: 0.5
+#   fast_sale_hours: 8.0
+#   good_deal_min_score: 2.0
+#   good_deal_min_confidence: 0.6
+
+
+# scarpe_griffate:
+#   search: " "
+#   prezzoDa: " "
+#   prezzoA: " "
+#   condition: "6-1"
+#   colore: " "
+#   brands: " "
+#   sort: "newest_first"
+#   category: "Articoli Griffati/Articoli Griffati per Donna/Scarpe griffate"
+#   folder: "Scarpe_Griffate"
+#   enabled: true
+#   tags: []
+#   auto_schedule: true
+#   min_delay_minutes: 60
+#   max_delay_minutes: 120
+#   activity_window_hours: 24
+#   default_delay_minutes: 60
+#   target_value_per_run: 3.0
+#   good_deal_weight: 1.0
+#   fast_sale_weight: 2.0
+#   sold_weight: 0.5
+#   fast_sale_hours: 8.0
+#   good_deal_min_score: 2.0
+#   good_deal_min_confidence: 0.6
+
+
+
+griffati_uomo_all:
+  search: " "
+  prezzoDa: "20"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Articoli Griffati/Articoli Griffati per Uomo"
+  folder: "griffati_uomo_all"
+  enabled: true
+  no_residential: true
+  tags: []
+
+griffati_donna_all:
+  search: " "
+  prezzoDa: "20"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Articoli Griffati/Articoli Griffati per Donna"
+  folder: "griffati_donna_all"
+  enabled: true
+  no_residential: true
+  tags: []

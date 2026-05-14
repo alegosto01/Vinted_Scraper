@@ -1,22 +1,121 @@
-# Ignore images
-*.png
-*.jpg
-*.jpeg
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# large generated data
-/data/*.pt
+# Local environment
 .env
-__pycache__/
-*.pyc
-data/*.pt
+.env.*
+*.env
+*.env.*
+!.env.example
+.venv/
+venv/
+.ipynb_checkpoints/
 
-# python
-__pycache__/
-*.pyc
-.env
-__pycache__/
-*.pyc
-.env
-__pycache__/
-*.pyc
-.env
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Generated model artifacts
+*.pt
+*.pth
+*.h5
+*.pkl
+*.joblib
+models/
+
+# Broad generated artifacts
+*.log
+*.csv
+*.sqlite
+*.db
+data/*
+
+# Generated data artifacts under data/
+data/**/big_raw.csv
+data/**/old_df.csv
+data/**/sold_df.csv
+data/**/unsold_df.csv
+data/**/sellers_df.csv
+data/**/non_really_sold_items_ids.csv
+data/**/stream_assigned.csv
+data/**/deals_ranked.csv
+data/**/items_enriched.csv
+data/**/buy_candidates_enriched.csv
+data/**/full_scrape_failures.csv
+data/**/full_scrape_events.csv
+data/**/priority_check_queue.csv
+data/**/sold_eventually.csv
+data/**/not_sold_yet.csv
+data/**/big_raw_eventual_sale_labeled.csv
+data/**/*_manifest.json
+data/**/manifest.json
+data/**/report.json
+data/**/summary.json
+data/**/summary.csv
+data/**/evaluation_report.json
+data/**/buy_evaluation_report.json
+data/**/foreground_blur_signal_report.json
+data/**/blur_signal_report.json
+data/**/full_enrichment_buy_policy_report.json
+data/**/sold_funnel_report.json
+data/**/image_cache_summary.json
+data/**/schedule_state.json
+data/**/sold_df_live_price_check.csv
+data/**/sold_df_live_price_check_summary.txt
+data/**/sold_df_live_price_check_all_searches_summary.csv
+data/**/sold_df_live_price_check_all_searches_summary.txt
+data/**/buy_decision_eval_all_searches_summary.csv
+data/**/buy_decision_eval_all_searches_summary.txt
+data/**/buy_decision_eval_strict_comparison.csv
+data/**/buy_decision_eval_strict_comparison.txt
+data/**/buy_threshold_diagnostics.txt
+data/**/download_stats.jsonl
+data/**/proxy_identity_stats.jsonl
+data/**/eventual_sale.log
+
+# Generated caches and run artifacts
+data/**/image_cache/
+data/**/pipeline_out/
+data/**/deal_score_eval/
+data/**/buy_eval/
+data/**/balanced_buy_eval/
+data/**/balanced_raw_eval/
+data/**/buy_decision_eval/
+data/**/buy_decision_eval_strict/
+data/**/buy_decision_visual_eval/
+data/**/buy_decision_visual_offline_eval/
+data/**/eventual_sale_check/
+data/**/full_scrape/
+data/**/full_scrape_*/
+data/**/final_buy_filter/
+data/**/logs/
+data/**/tuning_reports/
+data/clustering_approach/
+data/models/
+data/full_scrape/
+data/tmp_single_checks/
+data/recent_sold_truth_check_*/
+data/experiments/
+
+# Local secrets created by notification/bot integrations
+scripts/telegram_scripts/*.env
+
+# Keep config-like data files versioned
+!data/searches.yaml
+!data/brand_ids.csv
+
+# Experiment outputs
+scripts/experiments/**/reports/
+scripts/experiments/**/runs/
+
+# Other generated outputs
+deal_score_eval/
+out_subclustering/
+debug_vinted_page.html
+ihwbvivbr.csv
+replacements.txt
