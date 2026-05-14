@@ -2,9 +2,10 @@ import time
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver import Remote, ChromeOptions
 from selenium.webdriver.chromium.remote_connection import ChromiumRemoteConnection
+from config.project_config import settings
+from utils_lib.retry_utils import sleep_with_backoff
 
-AUTH = 'brd-customer-hl_c6889560-zone-scraping_browser1:wu62tqar4piy'
-SBR_WEBDRIVER = f'https://{AUTH}@zproxy.lum-superproxy.io:9515'
+SBR_WEBDRIVER = settings.proxy.scraping_browser_url
 def make_driver():
     chrome_options = Options()
     prefs = {
@@ -23,6 +24,8 @@ def make_driver():
 
     for attempt in range(3):
         try:
+            if not SBR_WEBDRIVER:
+                raise RuntimeError("Missing Bright Data scraping browser configuration")
             print('Connecting to Scraping Browser...')
             sbr_connection = ChromiumRemoteConnection(SBR_WEBDRIVER, 'goog', 'chrome')
             driver = Remote(sbr_connection, options=ChromeOptions())
@@ -31,6 +34,6 @@ def make_driver():
             return driver
         except Exception as e:
             print(f"Attempt {attempt + 1} failed: {e}")
-            time.sleep(15)
+            sleep_with_backoff(attempt + 1, base_delay=15)
     print("Failed to load the page after multiple attempts.")
     return None

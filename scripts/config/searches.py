@@ -215,6 +215,10 @@ colori = {
 categories = {"scarpe uomo": "1231",
               "Donna/Vestiti/Abbigliamento da esterno/Cappotti": "1907",
               "Donna/Scarpe": "16",
-              "Donna/Vestiti/Topet-shirt": "12"}
+              "Donna/Vestiti/Topet-shirt": "12",
+              "Articoli Griffati/Articoli Griffati per Donna/Borse griffate": "2984",
+              "Articoli Griffati/Articoli Griffati per Donna/Scarpe griffate": "2985",
+              "Articoli Griffati/Articoli Griffati per Uomo": "2988",
+              "Articoli Griffati/Articoli Griffati per Donna": "2983",}
 
 

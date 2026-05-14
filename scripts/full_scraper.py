@@ -1,16 +1,32 @@
 from Scraper import Scraper
+import ast
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import re
 import pandas as pd
-import utils
+import utils_lib.utils as utils
 from datetime import datetime
 import multiprocessing
 import tracemalloc
 import re
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+
+DEFAULT_MODEL_SWEEP_RUN = Path("data/experiments/deal_finder/offline_runs/sweep_20260510_222252")
+DEFAULT_LOW_SCORE_THRESHOLD = 0.05
+DEFAULT_HIGH_SCORE_THRESHOLD = 0.95
+FULL_SCRAPE_DIR_NAME = "full_scrape"
+FULL_SCRAPE_ITEMS_FILENAME = "items_enriched.csv"
+FULL_SCRAPE_FAILURES_FILENAME = "full_scrape_failures.csv"
+FULL_SCRAPE_EVENTS_FILENAME = "full_scrape_events.csv"
+SCORE_EXTREME_REASONS = {"score_low", "score_high"}
 
 
 def scrape_worker(args):
@@ -39,6 +55,11 @@ def scrape_worker(args):
                     "Location":         new_seller.get("Location", ""),
                     "ReviewsCount":    new_seller.get("ReviewsCount", 0),
                     "Stars":           new_seller.get("Stars", -1),
+                    "PrimaryImageUrl":  new_row.get("PrimaryImageUrl", ""),
+                    "FullImageUrls":    new_row.get("FullImageUrls", []),
+                    "VisiblePictureCount": new_row.get("VisiblePictureCount", 0),
+                    "HiddenPictureCount": new_row.get("HiddenPictureCount", 0),
+                    "PictureCount":     new_row.get("PictureCount", 0),
                     # "Page":              page+1,
                     # "SearchCount":       search_count,
                 })
@@ -55,256 +76,701 @@ def scrape_worker(args):
 class Full_Scraper(Scraper):
     def __init__(self):
         super().__init__()
-    
 
-    def fetch_page_and_check(self, item, get_images = False, check_venduto = False, get_upload_date = False):
-        time.sleep(15)
+    def _simple_scrape_root(self) -> Path:
         try:
-            # if int(item["Dataid"]) in non_really_sold_items_ids:
-            #     return item, False, "AlreadyChecked"
-            url = item["Link"]
-            html_content = self.get_page_content(url, timeout=60, sleep=50)
+            from config.project_config import settings
 
-            if html_content:
-                # get images solo per recuperare i links delle foto
-                if get_images:
-                    try:
-                        images_links_element = html_content.find('div[class="item-photos"]', first= True)
-                        images_links = [img.attrs["src"] for img in images_links_element.find("img") if "src" in img.attrs]
-
-                        item["Images"] = images_links
-                    except:
-                        print("problemaaaa")
-                if check_venduto:
-                    element = html_content.find('div[data-testid="item-status--content"]', first=True)
-                    if element and element.text == "Venduto":
-                        return item, True, "Sold"
-                if get_upload_date:
-                    try:
-                        item["Upload_date"] = html_content.find('div.details-list__item-value[itemprop="upload_date"] span', first=True).text
-                    except:
-                        item["Upload_date"] = "Unknown"
-                        print(f"item = {item['Dataid']} PROBLEMA UPLOAD DATE!!")
-            # time.sleep(5)
-            return item, False, "On Sale"
+            return Path(str(settings.paths.simple_scrape_dir))
         except Exception:
-            # time.sleep(3)
-            return item, False, "On Sale"
+            return Path("data/simple_scrape")
 
-        #scrpe the catagol page and get the main info of the items
-    
-    def scrape_products_serial(self, dictionary, search_count, pages_to_scrape, workers, get_images = False):
+    def _full_scrape_dir(self, search_name: str, output_subdir: str | None = None) -> Path:
+        subdir = str(output_subdir or FULL_SCRAPE_DIR_NAME).strip()
+        if not subdir:
+            subdir = FULL_SCRAPE_DIR_NAME
+        return self._simple_scrape_root() / str(search_name) / subdir
 
+    def _full_scrape_paths(self, search_name: str, output_subdir: str | None = None) -> dict[str, Path]:
+        out_dir = self._full_scrape_dir(search_name, output_subdir=output_subdir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "items": out_dir / FULL_SCRAPE_ITEMS_FILENAME,
+            "failures": out_dir / FULL_SCRAPE_FAILURES_FILENAME,
+            "events": out_dir / FULL_SCRAPE_EVENTS_FILENAME,
+        }
+
+    def _read_csv_or_empty(self, path: Path) -> pd.DataFrame:
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except Exception as exc:
+            self.logger.warning("Failed reading %s: %s: %s", path, type(exc).__name__, exc)
+            return pd.DataFrame()
+
+    def _write_csv_atomic(self, df: pd.DataFrame, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, path)
+
+    def _identity_key(self, row: pd.Series | dict) -> str:
+        data_id = row.get("Dataid") if isinstance(row, dict) else row.get("Dataid")
+        if data_id is not None and not (isinstance(data_id, float) and np.isnan(data_id)):
+            text = str(data_id).strip()
+            if text.endswith(".0"):
+                text = text[:-2]
+            if text:
+                return f"Dataid:{text}"
+        link = row.get("Link") if isinstance(row, dict) else row.get("Link")
+        text = str(link or "").strip()
+        return f"Link:{text}" if text else ""
+
+    def _identity_keys_for_frame(self, df: pd.DataFrame) -> set[str]:
+        if df.empty:
+            return set()
+        return {key for key in (self._identity_key(row) for _, row in df.iterrows()) if key}
+
+    def _dedupe_by_identity(self, df: pd.DataFrame, keep: str = "last") -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        out["_FullScrapeIdentity"] = [self._identity_key(row) for _, row in out.iterrows()]
+        with_key = out[out["_FullScrapeIdentity"].astype(str).str.len() > 0].copy()
+        without_key = out[out["_FullScrapeIdentity"].astype(str).str.len() == 0].copy()
+        if not with_key.empty:
+            with_key = with_key.drop_duplicates(subset=["_FullScrapeIdentity"], keep=keep)
+        return pd.concat([with_key, without_key], ignore_index=True).drop(columns=["_FullScrapeIdentity"], errors="ignore")
+
+    def _append_csv(self, path: Path, rows: list[dict], *, dedupe: bool = False) -> None:
+        if not rows:
+            return
+        incoming = pd.DataFrame(rows)
+        existing = self._read_csv_or_empty(path)
+        combined = pd.concat([existing, incoming], ignore_index=True) if not existing.empty else incoming
+        if dedupe:
+            combined = self._dedupe_by_identity(combined, keep="last")
+        self._write_csv_atomic(combined, path)
+
+    def _clean_image_url(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        text = text.replace("\\/", "/").replace("&amp;", "&")
+        if text.startswith("//"):
+            text = "https:" + text
+        return text
+
+    def _append_unique_image_url(self, urls: list[str], value: Any) -> None:
+        text = self._clean_image_url(value)
+        if not text or not text.startswith(("http://", "https://")):
+            return
+        if text not in urls:
+            urls.append(text)
+
+    def _image_urls_from_value(self, value: Any) -> list[str]:
+        out: list[str] = []
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return out
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("[") and text.endswith("]"):
+                try:
+                    parsed = ast.literal_eval(text)
+                    return self._image_urls_from_value(parsed)
+                except Exception:
+                    pass
+            self._append_unique_image_url(out, text)
+            return out
+        if isinstance(value, dict):
+            for key in ("url", "src", "full_size_url", "image_url", "thumbnail_url"):
+                if key in value:
+                    self._append_unique_image_url(out, value.get(key))
+            for child in value.values():
+                for url in self._image_urls_from_value(child):
+                    self._append_unique_image_url(out, url)
+            return out
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                for url in self._image_urls_from_value(item):
+                    self._append_unique_image_url(out, url)
+        return out
+
+    def _hidden_picture_count_from_text(self, value: Any) -> int:
+        text = str(value or "").strip()
+        if not text:
+            return 0
+        text = (
+            text.replace("\xa0", " ")
+            .replace("&nbsp;", " ")
+            .replace("＋", "+")
+            .strip()
+        )
+        match = re.search(
+            r"(?:^|[\s>])(?:\+|&plus;)\s*(\d{1,3})(?:\s*(?:foto|photo|photos|immagini|images))?(?:$|[\s<])",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return int(match.group(1)) if match else 0
+
+    def _hidden_picture_count_from_elements(self, elements: Any) -> int:
+        if elements is None:
+            return 0
+        if not isinstance(elements, (list, tuple, set)):
+            elements = [elements]
+        hidden_count = 0
+        for element in elements:
+            text = getattr(element, "text", "") or ""
+            hidden_count = max(hidden_count, self._hidden_picture_count_from_text(text))
+            attrs = getattr(element, "attrs", {}) or {}
+            for attr in ("aria-label", "title", "data-testid", "data-test-id"):
+                hidden_count = max(hidden_count, self._hidden_picture_count_from_text(attrs.get(attr)))
+            try:
+                children = element.find("*")
+            except Exception:
+                children = []
+            if children:
+                hidden_count = max(hidden_count, self._hidden_picture_count_from_elements(children))
+        return hidden_count
+
+    def extract_item_page_image_metadata(self, html_content, fallback_primary_url: Any = None) -> dict[str, Any]:
+        urls: list[str] = []
+        visible_urls: list[str] = []
+
+        selector_groups = [
+            'div[class*="item-photos"] img',
+            'button[class*="item-thumbnail"] img',
+            '[data-testid*="item-photo"] img',
+            '[data-testid*="item-photo"]',
+        ]
+        for selector in selector_groups:
+            try:
+                elements = html_content.find(selector)
+            except Exception:
+                elements = []
+            for element in elements:
+                attrs = getattr(element, "attrs", {}) or {}
+                for attr in ("src", "data-src", "content"):
+                    if attr in attrs:
+                        self._append_unique_image_url(urls, attrs.get(attr))
+                        self._append_unique_image_url(visible_urls, attrs.get(attr))
+
+        for selector, attr in (
+            ('meta[property="og:image"]', "content"),
+            ('meta[name="twitter:image"]', "content"),
+            ('meta[itemprop="image"]', "content"),
+        ):
+            try:
+                element = html_content.find(selector, first=True)
+            except Exception:
+                element = None
+            if element:
+                self._append_unique_image_url(urls, getattr(element, "attrs", {}).get(attr))
+
+        try:
+            scripts = html_content.find('script[type="application/ld+json"]')
+        except Exception:
+            scripts = []
+        for script in scripts:
+            raw_json = getattr(script, "text", None) or ""
+            if not raw_json.strip():
+                continue
+            try:
+                payload = json.loads(raw_json)
+            except json.JSONDecodeError:
+                continue
+            for obj in self._iter_json_dicts(payload):
+                if isinstance(obj, dict) and "image" in obj:
+                    for url in self._image_urls_from_value(obj.get("image")):
+                        self._append_unique_image_url(urls, url)
+
+        if not urls:
+            html_text = getattr(html_content, "html", "") or ""
+            for match in re.findall(r"https?:\\?/\\?/[^\"'<>\\\s]+?\.(?:webp|jpg|jpeg|png)(?:\?[^\"'<>\\\s]*)?", html_text, flags=re.IGNORECASE):
+                self._append_unique_image_url(urls, match)
+
+        for url in self._image_urls_from_value(fallback_primary_url):
+            self._append_unique_image_url(urls, url)
+
+        hidden_count = 0
+        hidden_source_selectors = [
+            'div[class*="item-photos"]',
+            'div[class*="item-photos"] button',
+            'div[class*="item-photos"] button div',
+            'section figure button',
+            'section figure button div',
+            'main figure button',
+            'main figure button div',
+            'figure button',
+            'figure button div',
+            'button[aria-label*="photo"]',
+            'button[aria-label*="foto"]',
+            'button[aria-label*="immagini"]',
+            '[data-testid*="photo"]',
+            '[data-testid*="image"]',
+        ]
+        for selector in hidden_source_selectors:
+            try:
+                elements = html_content.find(selector)
+            except Exception:
+                elements = []
+            hidden_count = max(hidden_count, self._hidden_picture_count_from_elements(elements))
+
+        hidden_xpaths = [
+            "//main//section//section//div//figure//button//div//div",
+            "//main//figure//button//div//div",
+            "//figure//button//*[normalize-space()]",
+            "//figure//button",
+        ]
+        for xpath in hidden_xpaths:
+            try:
+                elements = html_content.xpath(xpath)
+            except Exception:
+                elements = []
+            hidden_count = max(hidden_count, self._hidden_picture_count_from_elements(elements))
+
+        if hidden_count == 0:
+            html_text = getattr(html_content, "html", "") or ""
+            for match in re.findall(
+                r">\s*(?:\+|&plus;)\s*(\d{1,3})(?:\s*(?:foto|photo|photos|immagini|images))?\s*<",
+                html_text,
+                flags=re.IGNORECASE,
+            ):
+                hidden_count = max(hidden_count, int(match))
+
+        visible_count = len(visible_urls)
+        if visible_count == 0:
+            try:
+                visible_count = max(
+                    len(html_content.find('button[class*="item-thumbnail"]')),
+                    len(html_content.find("section figure")),
+                    len(html_content.find("main figure")),
+                )
+            except Exception:
+                visible_count = 0
+        if visible_count == 0 and hidden_count > 0 and urls:
+            visible_count = 1
+        picture_count = max(len(urls), visible_count + hidden_count if (visible_count or hidden_count) else 0)
+        if picture_count == 0 and fallback_primary_url:
+            picture_count = 1
+
+        return {
+            "PrimaryImageUrl": urls[0] if urls else "",
+            "FullImageUrls": urls,
+            "VisiblePictureCount": int(visible_count),
+            "HiddenPictureCount": int(hidden_count),
+            "PictureCount": int(picture_count),
+        }
+
+    def _model_metadata_path_from_best_row(self, sweep_run: Path, row: pd.Series) -> Path:
+        prefix = sweep_run.name
+        search_name = str(row.get("search_name"))
+        approach = str(row.get("approach"))
+        seed = int(float(row.get("seed", 42)))
+        return Path("data/experiments/deal_finder/models") / f"{prefix}_{search_name}_{approach}_seed{seed}_metadata.json"
+
+    def load_best_model_metadata_for_search(
+        self,
+        search_name: str,
+        *,
+        sweep_run: Path | str = DEFAULT_MODEL_SWEEP_RUN,
+    ) -> dict[str, Any] | None:
+        sweep_path = Path(sweep_run)
+        best_path = sweep_path / "best_by_search.csv"
+        if not best_path.exists():
+            self.logger.warning("Deal-finder best_by_search.csv not found: %s", best_path)
+            return None
+        best = pd.read_csv(best_path)
+        match = best[best["search_name"].astype(str).str.lower() == str(search_name).lower()]
+        if match.empty:
+            self.logger.info("No deal-finder model configured for search=%s", search_name)
+            return None
+        row = match.iloc[0]
+        metadata_path = self._model_metadata_path_from_best_row(sweep_path, row)
+        if not metadata_path.exists():
+            self.logger.warning("Deal-finder metadata not found for search=%s: %s", search_name, metadata_path)
+            return None
+        with metadata_path.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        metadata["metadata_path"] = str(metadata_path)
+        return metadata
+
+    def score_live_rows_for_search(
+        self,
+        search_name: str,
+        df: pd.DataFrame,
+        *,
+        sweep_run: Path | str = DEFAULT_MODEL_SWEEP_RUN,
+        low_threshold: float = DEFAULT_LOW_SCORE_THRESHOLD,
+        high_threshold: float = DEFAULT_HIGH_SCORE_THRESHOLD,
+    ) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        scored_at = datetime.now().astimezone().isoformat()
+        metadata = self.load_best_model_metadata_for_search(search_name, sweep_run=sweep_run)
+        if metadata is None:
+            out["DealFinderScore"] = np.nan
+            out["DealFinderScoreBand"] = "not_scored"
+            out["DealFinderScoredAt"] = scored_at
+            return out
+
+        try:
+            from experiments.deal_finder.model_sweep import add_engineered_snapshot_features, add_image_features
+            from experiments.deal_finder.modeling import load_pickle, score_with_model
+
+            work = out.copy()
+            if "SearchName" not in work.columns:
+                work["SearchName"] = search_name
+            work = add_engineered_snapshot_features(work)
+            if bool(metadata.get("requires_images")):
+                work = add_image_features(work)
+            for col in metadata.get("numeric_features", []) or []:
+                if col not in work.columns:
+                    work[col] = np.nan
+            for col in metadata.get("text_features", []) or []:
+                if col not in work.columns:
+                    work[col] = ""
+
+            model = load_pickle(Path(str(metadata["artifact_path"])))
+            scores = score_with_model(model, work)
+            out["DealFinderScore"] = np.asarray(scores, dtype=float)
+            out["DealFinderScoreBand"] = "score_middle"
+            out.loc[out["DealFinderScore"] <= float(low_threshold), "DealFinderScoreBand"] = "score_low"
+            out.loc[out["DealFinderScore"] >= float(high_threshold), "DealFinderScoreBand"] = "score_high"
+            out["DealFinderModel"] = metadata.get("approach", "")
+            out["DealFinderModelSearch"] = metadata.get("search_name", search_name)
+            out["DealFinderModelMetadata"] = metadata.get("metadata_path", "")
+            out["DealFinderThreshold"] = float(metadata.get("threshold", np.nan))
+            out["DealFinderLowThreshold"] = float(low_threshold)
+            out["DealFinderHighThreshold"] = float(high_threshold)
+            out["DealFinderScoredAt"] = scored_at
+            return out
+        except Exception as exc:
+            self.logger.warning("Deal-finder scoring failed for search=%s: %s: %s", search_name, type(exc).__name__, exc)
+            out["DealFinderScore"] = np.nan
+            out["DealFinderScoreBand"] = "score_failed"
+            out["DealFinderScoredAt"] = scored_at
+            out["DealFinderScoreError"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+    def select_score_extremes(
+        self,
+        scored_df: pd.DataFrame,
+        *,
+        low_threshold: float = DEFAULT_LOW_SCORE_THRESHOLD,
+        high_threshold: float = DEFAULT_HIGH_SCORE_THRESHOLD,
+    ) -> pd.DataFrame:
+        if scored_df.empty or "DealFinderScore" not in scored_df.columns:
+            return scored_df.iloc[0:0].copy()
+        out = scored_df.copy()
+        scores = pd.to_numeric(out["DealFinderScore"], errors="coerce")
+        mask_low = scores <= float(low_threshold)
+        mask_high = scores >= float(high_threshold)
+        selected = out[mask_low | mask_high].copy()
+        if selected.empty:
+            return selected
+        selected["FullScrapeReason"] = "score_low"
+        selected.loc[pd.to_numeric(selected["DealFinderScore"], errors="coerce") >= float(high_threshold), "FullScrapeReason"] = "score_high"
+        return selected.reset_index(drop=True)
+
+    def collect_full_item_payload(
+        self,
+        row_dict: dict,
+        *,
+        search_name: str,
+        reason: str,
+        no_residential: bool = False,
+        image_mode: str = "html",
+    ) -> tuple[dict | None, dict | None]:
+        scraped_at = datetime.now().astimezone().isoformat()
+        data_id = row_dict.get("Dataid")
+        link = row_dict.get("Link")
+        if not link:
+            failure = dict(row_dict)
+            failure.update({
+                "SearchName": search_name,
+                "FullScrapeReason": reason,
+                "FullScrapedAt": scraped_at,
+                "FullScrapeStatus": "MissingLink",
+                "FullScrapeError": "Missing Link",
+            })
+            return None, failure
+        try:
+            item_info, seller_info = self.scrape_single_product(
+                url=link,
+                data_id=data_id,
+                get_images=True,
+                image_mode=image_mode,
+                no_residential=no_residential,
+                fetch_sleep=0,
+                fetch_max_attempts=1,
+                post_fetch_sleep=0,
+            )
+            if not item_info and not seller_info:
+                failure = dict(row_dict)
+                failure.update({
+                    "SearchName": search_name,
+                    "FullScrapeReason": reason,
+                    "FullScrapedAt": scraped_at,
+                    "FullScrapeStatus": "FetchFailed",
+                    "FullScrapeError": "Item page could not be loaded",
+                })
+                return None, failure
+            out = dict(row_dict)
+            out.update({
+                "SearchName": search_name,
+                "FullScrapeReason": reason,
+                "FullScrapedAt": scraped_at,
+                "FullScrapeStatus": "OK",
+                "Description": item_info.get("Description", ""),
+                "Condition": item_info.get("Condition", ""),
+                "Upload_date": item_info.get("Upload_date", ""),
+                "Interested_count": item_info.get("Interested_count", np.nan),
+                "View_count": item_info.get("View_count", np.nan),
+                "SellerName": seller_info.get("SellerName", item_info.get("SellerName", "")),
+                "SellerId": seller_info.get("SellerId", item_info.get("SellerId", "")),
+                "Location": seller_info.get("Location", ""),
+                "ReviewsCount": seller_info.get("ReviewsCount", np.nan),
+                "Stars": seller_info.get("Stars", np.nan),
+                "PrimaryImageUrl": item_info.get("PrimaryImageUrl", ""),
+                "FullImageUrls": json.dumps(item_info.get("FullImageUrls", []), ensure_ascii=True),
+                "VisiblePictureCount": item_info.get("VisiblePictureCount", 0),
+                "HiddenPictureCount": item_info.get("HiddenPictureCount", 0),
+                "PictureCount": item_info.get("PictureCount", 0),
+            })
+            if item_info.get("Images"):
+                out["Images"] = item_info.get("Images")
+            return out, None
+        except Exception as exc:
+            failure = dict(row_dict)
+            failure.update({
+                "SearchName": search_name,
+                "FullScrapeReason": reason,
+                "FullScrapedAt": scraped_at,
+                "FullScrapeStatus": "Error",
+                "FullScrapeError": f"{type(exc).__name__}: {exc}",
+            })
+            return None, failure
+
+    def collect_and_store_full_items(
+        self,
+        rows_df: pd.DataFrame,
+        *,
+        search_name: str,
+        reason: str,
+        max_workers: int = 2,
+        no_residential: bool = False,
+        image_mode: str = "html",
+        skip_existing: bool = False,
+        output_subdir: str | None = None,
+    ) -> dict[str, Any]:
+        paths = self._full_scrape_paths(search_name, output_subdir=output_subdir)
+        if rows_df.empty:
+            return {"requested": 0, "processed": 0, "succeeded": 0, "failed": 0, "skipped_existing": 0}
+
+        work = rows_df.copy()
+        if "FullScrapeReason" in work.columns:
+            reason_by_key = {self._identity_key(row): str(row.get("FullScrapeReason") or reason) for _, row in work.iterrows()}
+        else:
+            reason_by_key = {}
+
+        skipped_existing = 0
+        if skip_existing:
+            existing_keys = self._identity_keys_for_frame(self._read_csv_or_empty(paths["items"]))
+            keep_rows = []
+            for _, row in work.iterrows():
+                if self._identity_key(row) in existing_keys:
+                    skipped_existing += 1
+                    continue
+                keep_rows.append(row.to_dict())
+            work = pd.DataFrame(keep_rows)
+
+        if work.empty:
+            return {
+                "requested": int(len(rows_df)),
+                "processed": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "skipped_existing": int(skipped_existing),
+            }
+
+        rows = [row.to_dict() for _, row in work.iterrows()]
+        successes: list[dict] = []
+        failures: list[dict] = []
+        events: list[dict] = []
+
+        def run_one(row: dict) -> tuple[dict | None, dict | None]:
+            row_reason = reason_by_key.get(self._identity_key(row), reason)
+            return self.collect_full_item_payload(
+                row,
+                search_name=search_name,
+                reason=row_reason,
+                no_residential=no_residential,
+                image_mode=image_mode,
+            )
+
+        with ThreadPoolExecutor(max_workers=max(1, int(max_workers))) as ex:
+            futures = [ex.submit(run_one, row) for row in rows]
+            for fut in as_completed(futures):
+                success, failure = fut.result()
+                event_source = success if success is not None else failure
+                if success is not None:
+                    successes.append(success)
+                if failure is not None:
+                    failures.append(failure)
+                if event_source is not None:
+                    events.append({
+                        "SearchName": event_source.get("SearchName", search_name),
+                        "Dataid": event_source.get("Dataid", ""),
+                        "Link": event_source.get("Link", ""),
+                        "FullScrapeReason": event_source.get("FullScrapeReason", reason),
+                        "FullScrapedAt": event_source.get("FullScrapedAt", datetime.now().astimezone().isoformat()),
+                        "FullScrapeStatus": event_source.get("FullScrapeStatus", "Unknown"),
+                        "DealFinderScore": event_source.get("DealFinderScore", np.nan),
+                    })
+
+        self._append_csv(paths["items"], successes, dedupe=True)
+        self._append_csv(paths["failures"], failures, dedupe=False)
+        self._append_csv(paths["events"], events, dedupe=False)
+        return {
+            "requested": int(len(rows_df)),
+            "processed": int(len(rows)),
+            "succeeded": int(len(successes)),
+            "failed": int(len(failures)),
+            "skipped_existing": int(skipped_existing),
+            "items_path": str(paths["items"]),
+            "failures_path": str(paths["failures"]),
+            "events_path": str(paths["events"]),
+        }
+
+    def score_and_collect_extremes_for_live_rows(
+        self,
+        search_name: str,
+        df: pd.DataFrame,
+        *,
+        no_residential: bool = False,
+        low_threshold: float = DEFAULT_LOW_SCORE_THRESHOLD,
+        high_threshold: float = DEFAULT_HIGH_SCORE_THRESHOLD,
+        max_workers: int = 2,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        scored = self.score_live_rows_for_search(
+            search_name,
+            df,
+            low_threshold=low_threshold,
+            high_threshold=high_threshold,
+        )
+        extremes = self.select_score_extremes(
+            scored,
+            low_threshold=low_threshold,
+            high_threshold=high_threshold,
+        )
+        summary = {"extreme_rows": int(len(extremes)), "full_scrape": {}}
+        if not extremes.empty:
+            summary["full_scrape"] = self.collect_and_store_full_items(
+                extremes,
+                search_name=search_name,
+                reason="score_extreme",
+                max_workers=max_workers,
+                no_residential=no_residential,
+                image_mode="html",
+                skip_existing=False,
+            )
+        return scored, summary
+
+    def fetch_page_and_check(self, item, get_images=False, check_venduto=False, get_upload_date=False):
+        return self.inspect_item_page(
+            item,
+            get_images=get_images,
+            check_venduto=check_venduto,
+            get_upload_date=get_upload_date,
+            initial_delay=15,
+        )
+
+    def scrape_products_serial(self, dictionary, search_count, pages_to_scrape, workers, get_images=False):
         data = []
         seller_rows = []
-        page = 0
-        last_page = False
-
-        #create the page to scrape
+        stats = {
+            'pages_attempted': 0,
+            'pages_loaded': 0,
+            'products_seen': 0,
+            'products_valid': 0,
+            'worker_failures': 0,
+        }
         webpage = self.create_webpage(dictionary)
 
-        #loop through all the pages available
-        for i in range(pages_to_scrape):
-
-            new_webpage = webpage + "&page=" + str(page+1)
-            print(f"I'm searching in {new_webpage}")
+        for page in range(pages_to_scrape):
+            stats['pages_attempted'] += 1
+            new_webpage = webpage + '&page=' + str(page + 1)
+            self.logger.info('Full scrape search=%s page=%s url=%s', dictionary.search, page + 1, new_webpage)
 
             html_content = self.get_page_content(new_webpage, timeout=60, sleep=5)
-            time.sleep(5)
-            try:
-                element = html_content.find('meta[content="Una community, migliaia di brand e tantissimo stile second-hand. Ti va di iniziare? Ecco come funziona."]', first=True)
-            except:
+            if html_content is None:
+                self.logger.warning('Skipping full scrape page=%s because fetch failed', page + 1)
                 continue
 
-            # time.sleep(5)
-
-            #if the previous page was empty then stop
-            if last_page:
-                # page -= 1
-                print(f"finished at page {page+1}")
-                break
-            else:
-                print(f"im at page {page+1}")
-
-                    #find list of products in the page
+            stats['pages_loaded'] += 1
             products = html_content.find('.new-item-box__container')
-
             all_likes_counts = html_content.find('.u-background-white.u-flexbox.u-align-items-center.new-item-box__favourite-icon')
+            stats['products_seen'] += len(products)
 
-            #if the page has 0 products mean that we can stop scraping
-            print(f"Len products = {len(products)}")
+            self.logger.info('Full scrape catalog page=%s yielded %s products', page + 1, len(products))
             if len(products) == 0 and page < 10:
                 break
 
-            # #get all the data from the products
-            # for product in products:
-
-            #     image_link = product.find("img", first=True).attrs.get("src")
-            #     if image_link is None:
-            #         print("Image link is None")
-
-            #     element_with_data = product.find('.new-item-box__overlay', first=True)
-
-            #     #get link, dataid, and components (which contains tile, price, size and brand)
-            #     title = utils.remove_illegal_characters(element_with_data.attrs.get("title"))
-            #     components = utils.split_data(title)
-            #     link = element_with_data.attrs.get("href")
-
-            #     if "referrer=catalog" not in link:
-            #         continue
-
-            #     data_id = element_with_data.attrs.get("data-testid", "").split("-")
-
-            #     if len(data_id) == 7:
-            #         data_id = data_id[3]
-            #     else:
-            #         data_id = data_id[1]
-
-            #     likes_count = 0
-
-            #     for element in all_likes_counts:
-            #         # Retrieve the "data-testid" attribute
-            #         element_data_test_id = element.attrs.get("data-testid", "")
-                    
-            #         # Check if data_test_id contains the desired data_id
-            #         if data_id and data_id in element_data_test_id:
-            #             aria_label = element.attrs.get("aria-label","")
-            #             if aria_label != "Aggiungi ai preferiti": # if equal means 0 likes
-            #                 likes_count = aria_label.split("Aggiunto ai preferiti da ")[1].split(" ")[0] # Adjust based on actual aria-label structure
-            #                 break  # Stop once the correct element is found
-
-            #     #sometimes there is a comma at the end of the price, this code removes it
-            #     price = components[1][:-1] if components[1].endswith('.') else components[1]
-            #     price = price.replace(',', '.')
-            #     price = re.sub(r'[^\d.]', '', price)
-            #     if price.count('.') > 1:
-            #         parts = price.split('.')
-            #         price = parts[0] + '.' + ''.join(parts[1:])  # Keeps the first dot only
-                
-
-                
-            #     new_row, new_seller_row = self.scrape_single_product(url=link, data_id=str(data_id), get_images=get_images)
-                
-            #     seller_rows.append(new_seller_row)
-
-            #     new_full_row = {
-            #         "Title": components[0],
-            #         "Price": float(price) if price else 0.0,
-            #         "Brand": components[2],
-            #         "Size": components[3],
-            #         "Link": link,
-            #         "Likes": likes_count,
-            #         "Dataid": str(data_id),
-            #         "MarketStatus": "On Sale",
-            #         "SearchDate": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            #         "Page": page+1,
-            #         "SearchCount": search_count,
-            #         "Images": image_link,
-            #         "Interested_count": new_row["Interested_count"],
-            #         "View_count": new_row["View_count"],
-            #         "Item_description": new_row["Description"],
-            #         "Condition": new_row["Condition"],
-            #         "Upload_date": new_row["Upload_date"],
-            #         "Dataid": new_row["Dataid"],
-            #         "SellerId": " ",
-            #         "SellerName": new_row["SellerName"]
-            #     }
-
-            #     print(f"new_row = {new_full_row}")
-            #     # Append the data to the list
-            #     data.append(new_full_row)
-
-                
-            #     print(f"data appended = {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-
-            ###### PARALLEL SCRAPING ######
-
-
-            def extract_product_meta(product, all_likes_counts, get_images):
-                """Pulls out title, link, data_id, price, likes, etc.  
-                DOES NOT call scrape_single_product yet."""
-                # image link
-                img = product.find("img", first=True).attrs.get("src")
-                element_with_data = product.find('.new-item-box__overlay', first=True)
-                title = utils.remove_illegal_characters(element_with_data.attrs["title"])
-                components = utils.split_data(title)
-                link = element_with_data.attrs["href"]
-                if "referrer=catalog" not in link:
-                    return None  # skip
-
-                # extract data_id    
-                parts = element_with_data.attrs.get("data-testid", "").split("-")
-                data_id = parts[3] if len(parts)==7 else parts[1]
-
-                # likes
-                likes = 0
-                for el in all_likes_counts:
-                    tid = el.attrs.get("data-testid","")
-                    if data_id in tid:
-                        lbl = el.attrs.get("aria-label","")
-                        if lbl!="Aggiungi ai preferiti":
-                            likes = int(lbl.split("Aggiunto ai preferiti da ")[1].split()[0])
-                        break
-
-                # normalize price
-                price = components[1]
-                if price.endswith('.'): 
-                    price = price[:-1]
-                price = re.sub(r'[^\d.,]', "", price).replace(",", ".")
-                if price.count('.')>1:
-                    p = price.split('.')
-                    price = p[0] + "." + "".join(p[1:])
-
-                return {
-                    "Title": components[0],
-                    "Price": float(price) if price else 0.0,
-                    "Brand": components[2],
-                    "Size": components[3],
-                    "Link": link,
-                    "Likes": likes,
-                    "Dataid": data_id,
-                    "get_images": get_images,
-                    "Page": page + 1,
-                    "SearchCount": search_count
-                }
-
-            
-
-            # — in your scraping loop —
             metas = []
             for product in products[:20]:
-                m = extract_product_meta(product, all_likes_counts, get_images)
-                if m:
-                    metas.append(m)
+                meta = self.extract_catalog_item_meta(product, all_likes_counts, page, search_count, get_images=get_images)
+                if meta:
+                    meta['get_images'] = get_images
+                    metas.append(meta)
+                    stats['products_valid'] += 1
 
-            # dispatch to process‐pool
             with ThreadPoolExecutor(max_workers=workers) as exe:
-                futures = [
-                    exe.submit(scrape_worker, (self, meta))
-                    for meta in metas
-                ]
+                futures = [exe.submit(scrape_worker, (self, meta)) for meta in metas]
                 for fut in as_completed(futures):
                     try:
                         meta, seller_data = fut.result()
                         data.append(meta)
                         seller_rows.append(seller_data)
+                    except Exception as exc:
+                        stats['worker_failures'] += 1
+                        self.logger.warning('Full scrape worker failed on page=%s: %s', page + 1, exc)
 
-                    except Exception as e:
-                        print("Error in worker:", e)
+            self.logger.info(
+                'Full scrape progress search=%s page=%s rows=%s sellers=%s worker_failures=%s',
+                dictionary.search,
+                page + 1,
+                len(data),
+                len(seller_rows),
+                stats['worker_failures'],
+            )
 
-            # `data` is now your list of full rows
-
-            print(f"len data = {len(data)}")
-            page += 1
-
-
+        self.logger.info('Full scrape summary search=%s stats=%s', dictionary.search, stats)
         return data, seller_rows
 
-
     #scrape the specific web page of an item
-    def scrape_single_product(self, url, data_id, get_images = False): #dictionary was a parameter
+    def scrape_single_product(
+        self,
+        url,
+        data_id,
+        get_images=False,
+        image_mode="html",
+        no_residential=False,
+        allow_residential_fallback=True,
+        fetch_sleep=10,
+        fetch_max_attempts=3,
+        post_fetch_sleep=0,
+    ): #dictionary was a parameter
         
-        html_content = self.get_page_content(url)
+        html_content = self.get_page_content(
+            url,
+            sleep=fetch_sleep,
+            max_attempts=fetch_max_attempts,
+            allow_residential_fallback=allow_residential_fallback,
+            no_residential=no_residential,
+        )
 
         if html_content is None:
             return {}, {}
@@ -314,7 +780,8 @@ class Full_Scraper(Scraper):
         #f the page exists then get all the data, else remove the row from the df (for now)
         if page_exists:
             #get reviews count and star rating
-            time.sleep(10)
+            if post_fetch_sleep:
+                time.sleep(post_fetch_sleep)
             try:
                 reviews_element = html_content.find("div[class='web_ui__Rating__rating web_ui__Rating__small']", first=True).text
                 # reviews_element = html_content.find("h4[class='web_ui__Text__text web_ui__Text__caption web_ui__Text__left']").text
@@ -331,7 +798,8 @@ class Full_Scraper(Scraper):
                     stars = stars_element.attrs.get("aria-label").split(" ")[6]
                 else:
                     stars = stars_element.attrs.get("aria-label").split(" ")[2]
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse seller stars for item=%s: %s', data_id, exc)
                 stars = -1
             # stars = self.driver.find_elements(By.XPATH, "//div[@class='web_ui__Rating__star web_ui__Rating__full']")
 
@@ -342,7 +810,8 @@ class Full_Scraper(Scraper):
                 # html_content.find("div.details-list__item-value--redesign[itemprop='location']", first=True)
                 location = location_element.text if location_element else "Not found"            
                 # location = self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='location']").text
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse seller location for item=%s: %s', data_id, exc)
                 location = "Unknown"
 
             try:
@@ -351,7 +820,8 @@ class Full_Scraper(Scraper):
                 # views_count_element = html_content.find("span[class='web_ui__Text__text web_ui__Text__subtitle web_ui__Text__left web_ui__Text__bold']", first=True)
                 views_count = int(views_count_element.text) if views_count_element else -1  
                 # views_count = int(self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='view_count']").text)
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse views count for item=%s: %s', data_id, exc)
                 views_count = -1
             
             
@@ -360,7 +830,8 @@ class Full_Scraper(Scraper):
                 interested_count_element = html_content.find('div.details-list__item-value[itemprop="interested"] span', first=True)
                 interested_count = int(interested_count_element.text.split(" ")[0]) if interested_count_element else -1  
                 # interested_count = int(self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='interested']").text.split(" ")[0])
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse interested count for item=%s: %s', data_id, exc)
                 interested_count = -1
 
             try:
@@ -370,19 +841,22 @@ class Full_Scraper(Scraper):
                 #             html_content.find('div.details-list__item-value[itemprop="upload_date"] span', first=True)
                 #     # self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='upload_date']").text.split()[:-1]
                 #     )
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse upload date for item=%s: %s', data_id, exc)
                 upload_date = "Unknown"
             
             try:
                 #get item description
                 item_description = html_content.find("span[class='web_ui__Text__text web_ui__Text__body web_ui__Text__left web_ui__Text__format']", first=True).text
                 # item_description = self.driver.find_element(By.XPATH, "//span[@class='web_ui__Text__text web_ui__Text__body web_ui__Text__left web_ui__Text__format']").text
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse item description for item=%s: %s', data_id, exc)
                 item_description = "Unknown"
             try:
                 #get seller name
                 seller_name = html_content.find(f"span[data-testid*='profile-username']", first=True).text
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse seller name for item=%s: %s', data_id, exc)
                 seller_name = "Unknown"
             # except:
             #     print("problem finding something")
@@ -393,7 +867,8 @@ class Full_Scraper(Scraper):
 
                 # item_condition_element = html_content.find("div[data-testid='item-attributes-status']", first=True)
                 # item_condition = item_condition_element.find("div[class='details-list__item-value--redesign']", first=True).text
-            except:
+            except Exception as exc:
+                self.logger.debug('Could not parse item condition for item=%s: %s', data_id, exc)
                 item_condition = "Unknown"
 
             # print(f"condition = {item_condition}")
@@ -407,15 +882,32 @@ class Full_Scraper(Scraper):
                     "Stars": stars
             }
 
+            fallback_primary = None
+            try:
+                fallback_primary = html_content.find('meta[property="og:image"]', first=True)
+                fallback_primary = fallback_primary.attrs.get("content") if fallback_primary else None
+            except Exception:
+                fallback_primary = None
+
+            image_metadata = self.extract_item_page_image_metadata(html_content, fallback_primary_url=fallback_primary)
+
             ### get images or not depending on what is set in the bool parameter get_images
-            if get_images:
+            if get_images and str(image_mode).lower() == "selenium":
                 try:
                     image_urls = self.get_all_product_images(url)
-                except:
-                    print("ERROR GETTING IMAGES")
-                    image_urls = []
+                except Exception as exc:
+                    self.logger.warning('Error getting images for item=%s: %s', data_id, exc)
+                    image_urls = image_metadata.get("FullImageUrls", [])
+                if image_urls:
+                    image_metadata["FullImageUrls"] = image_urls
+                    image_metadata["PrimaryImageUrl"] = image_urls[0]
+                    image_metadata["PictureCount"] = max(int(image_metadata.get("PictureCount", 0) or 0), len(image_urls))
+            elif get_images:
+                image_urls = image_metadata.get("FullImageUrls", [])
             else:
                 image_urls = []
+
+            page_price = self.extract_item_page_price(html_content)
 
             new_row = {
                 "Images": image_urls,
@@ -424,9 +916,15 @@ class Full_Scraper(Scraper):
                 "Description": item_description,
                 "Condition": item_condition,
                 "Upload_date": upload_date,
+                "Price": page_price,
                 # "Dataid": data_id,
                 "SellerId": " ",
-                "SellerName": seller_name
+                "SellerName": seller_name,
+                "PrimaryImageUrl": image_metadata.get("PrimaryImageUrl", ""),
+                "FullImageUrls": image_metadata.get("FullImageUrls", []),
+                "VisiblePictureCount": image_metadata.get("VisiblePictureCount", 0),
+                "HiddenPictureCount": image_metadata.get("HiddenPictureCount", 0),
+                "PictureCount": image_metadata.get("PictureCount", 0),
             }
 
         else:
@@ -504,8 +1002,8 @@ class Full_Scraper(Scraper):
                         try:
                             non_really_sold_items_ids.add(int(item["Dataid"]))
                             old_df.loc[old_df["Link"] == item["Link"], "MarketStatus"] = "On Sale"
-                        except:
-                            print("problems casting dataid with item")
+                        except (TypeError, ValueError) as exc:
+                            self.logger.warning('Failed to mark non-really-sold item=%s: %s', item.get('Dataid'), exc)
                     print(f"Item not sold: {item['Title']}")
 
         print("Parallel scraping complete.")
@@ -559,16 +1057,27 @@ class Full_Scraper(Scraper):
 
         if not actually_sold_items:
             print("No actually sold items found.")
-            # Store the actully sold items
-            new_sold_df = pd.DataFrame(actually_sold_items)        
+        else:
+            new_sold_df = pd.DataFrame(actually_sold_items)
+
+            if "Dataid" in new_sold_df.columns:
+                old_df = old_df[~old_df["Dataid"].isin(new_sold_df["Dataid"])].copy()
+                sold_dedupe_subset = ["Dataid"]
+            else:
+                old_df = old_df[~old_df["Link"].isin(new_sold_df["Link"])].copy()
+                sold_dedupe_subset = ["Link"]
 
             sold_full_scraped_df = pd.concat([sold_full_scraped_df, new_sold_df], ignore_index=True)
+            sold_full_scraped_df = sold_full_scraped_df.drop_duplicates(subset=sold_dedupe_subset, keep="first")
             sold_full_scraped_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/sold_df.csv", index=False)
             print(f"Actually sold items: {len(actually_sold_items)}")
 
         # Remove and manage old items in the search
         old_df, unsold_full_scraped_df = self.remove_and_manage_old_items_in_search(old_df, new_df, unsold_full_scraped_df)
 
+        full_unsold_dedupe_subset = ["Dataid"] if "Dataid" in unsold_full_scraped_df.columns else ["Link"] if "Link" in unsold_full_scraped_df.columns else None
+        if full_unsold_dedupe_subset:
+            unsold_full_scraped_df = unsold_full_scraped_df.drop_duplicates(subset=full_unsold_dedupe_subset, keep="first")
         unsold_full_scraped_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/unsold_df.csv", index=False)
 
         if old_seller_df["SellerId"].notna().any():

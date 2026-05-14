@@ -1,73 +1,69 @@
-from transformers import CLIPProcessor, CLIPModel
-from PIL import Image
-import torch
-import os
-import cv2
+from __future__ import annotations
+
+from functools import lru_cache
+
 import numpy as np
-from scipy.stats import skew, kurtosis
-from pathlib import Path
+from PIL import Image
 
 
-
-clip_model_id = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
-clip_model = CLIPModel.from_pretrained(clip_model_id)
-clip_processor = CLIPProcessor.from_pretrained(clip_model_id)
+CLIP_MODEL_ID = 'laion/CLIP-ViT-H-14-laion2B-s32B-b79K'
+TEXT_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
 
 
-def check_item(option1, option2, image):
+@lru_cache(maxsize=1)
+def _get_clip_components():
+    from transformers import CLIPImageProcessor, CLIPModel, CLIPProcessor, CLIPTokenizerFast
 
-    # Load and preprocess image
-    image = Image.open(image)
-    inputs = clip_processor(text=[option1, option2], images=image, return_tensors="pt", padding=True)
-
-    # Perform image recognition
-    outputs = clip_model(**inputs)
-    logits_per_image = outputs.logits_per_image
-    probs = logits_per_image.softmax(dim=1)
-
-    # print(f"Probabilities: {probs[0]}")    
-    return probs[0].detach().numpy()
-
-
-
-
-from sentence_transformers import SentenceTransformer, util
-
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-
-search = "jbl charge 5"
-item = "jbl flip 5"
-
-# embeddings
-emb = model.encode([search, item], convert_to_tensor=True, normalize_embeddings=True)
-
-# cosine similarity
-score = util.cos_sim(emb[0], emb[1]).item()
-print("similarity:", score)
-
-if score > 0.75:   # tune threshold
-    print("✅ adequate (same product)")
-else:
-    print("❌ not adequate")
+    clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID, local_files_only=True)
+    try:
+        clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_ID, local_files_only=True)
+    except OSError:
+        # Older/local caches may have the tokenizer and image preprocessor but not a
+        # processor_config.json. Build the processor from the cached components.
+        tokenizer = CLIPTokenizerFast.from_pretrained(CLIP_MODEL_ID, local_files_only=True)
+        image_processor = CLIPImageProcessor.from_pretrained(CLIP_MODEL_ID, local_files_only=True)
+        clip_processor = CLIPProcessor(tokenizer=tokenizer, image_processor=image_processor)
+    clip_model.eval()
+    return clip_model, clip_processor
 
 
+@lru_cache(maxsize=1)
+def _get_text_model():
+    from sentence_transformers import SentenceTransformer
 
-# # pip install transformers torch
-# from transformers import pipeline
+    return SentenceTransformer(TEXT_MODEL_ID)
 
-# # Choose a local NLI model (multilingual):
-# # "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"  (multilingual)
-# # or "MoritzLaurer/deberta-v3-base-mnli"     (English-focused)
-# clf = pipeline("zero-shot-classification", model="MoritzLaurer/mDeBERTa-v3-base-mnli-xnli")
 
-# labels = ["keep", "discard"]
-# hypothesis_template = "This item should be {}."
+def check_item(option1: str, option2: str, image: str | list[str]) -> np.ndarray:
+    import torch
 
-# texts = [
-#     "Bottiglia vuota senza profumo.",
-#     "Profumo nuovo, imballo originale, scontrino."
-# ]
+    clip_model, clip_processor = _get_clip_components()
+    image_paths = image if isinstance(image, list) else [image]
+    loaded_images = [Image.open(path).convert("RGB") for path in image_paths]
+    inputs = clip_processor(text=[option1, option2], images=loaded_images, return_tensors='pt', padding=True)
+    with torch.inference_mode():
+        outputs = clip_model(**inputs)
+        logits_per_image = outputs.logits_per_image
+        probs = logits_per_image.softmax(dim=1).detach().cpu().numpy()
+    return probs if isinstance(image, list) else probs[0]
 
-# for t in texts:
-#     out = clf(t, labels, hypothesis_template=hypothesis_template, multi_label=False)
-#     print(t, "->", out["labels"][0], out["scores"][0])
+
+def text_similarity(search: str, item: str) -> float:
+    from sentence_transformers import util
+
+    model = _get_text_model()
+    emb = model.encode([search, item], convert_to_tensor=True, normalize_embeddings=True)
+    return float(util.cos_sim(emb[0], emb[1]).item())
+
+
+def is_text_match(search: str, item: str, threshold: float = 0.75) -> bool:
+    return text_similarity(search, item) > threshold
+
+
+if __name__ == '__main__':
+    score = text_similarity('jbl charge 5', 'jbl flip 5')
+    print('similarity:', score)
+    if score > 0.75:
+        print('MATCH')
+    else:
+        print('NO_MATCH')

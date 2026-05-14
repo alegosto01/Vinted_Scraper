@@ -12,7 +12,7 @@ import pandas as pd
 from selenium.webdriver.common.action_chains import ActionChains
 import schedule
 import time
-import utils
+import utils_lib.utils as utils
 
 
 from selenium.common.exceptions import TimeoutException
@@ -103,8 +103,10 @@ def log_in(driver):
 
     time.sleep(5)
 
-    mail = "ale.gostoli@gmail.com"
-    password = "xhni4sK3$/wf5AS"
+    mail = os.getenv("VINTED_LOGIN_EMAIL")
+    password = os.getenv("VINTED_LOGIN_PASSWORD")
+    if not mail or not password:
+        raise RuntimeError("Set VINTED_LOGIN_EMAIL and VINTED_LOGIN_PASSWORD in your local environment before logging in.")
 
 
     mail_box = driver.find_element(By.XPATH, "//input[@id='username']")

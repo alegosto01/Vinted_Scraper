@@ -8,12 +8,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 from selenium.webdriver.common.action_chains import ActionChains
-import searches as search
+import config.searches as search
 import csv
 import os
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 import Scraper
-import utils
+import utils_lib.utils as utils
+from config.project_config import settings
 
 # options = webdriver.ChromeOptions()
 # options.add_experimental_option("detach", True)
@@ -71,7 +72,7 @@ def find_brand_ids(driver, filters):
     #save the new brands
     temp_df = pd.DataFrame(brand_to_add, columns=["Brand", "Brand_id"])
 
-    df_brand_ids_path = '/home/ale/Desktop/Vinted_New_Version/data/brand_ids.csv'
+    df_brand_ids_path = settings.paths.brand_ids_csv
     
     if not os.path.exists(df_brand_ids_path):
         temp_df.to_csv(df_brand_ids_path, index=False)

@@ -1,6 +1,6 @@
 import pandas as pd
 import Scraper
-import utils
+import utils_lib.utils as utils
 import time
 from simple_scraper import Simple_scraper
 import os
@@ -171,5 +171,4 @@ sold_df = sold_df[:2]
 for index, row in sold_df.iterrows():
     print(f"Analyzing item {index + 1}/{len(sold_df)}: {row['Title']}")
     compare_item_to_the_similar(row)
-
 

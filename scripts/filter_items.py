@@ -1,13 +1,14 @@
 import numpy as np
-import utils
+import utils_lib.utils as utils
 import os
 import pandas as pd
-import clip
 import math
+from config.project_config import settings
+from config.search_loader import load_searches
 
 
-data_folder_simple_scrape = "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape"
-searches_yaml = "/home/ale/Desktop/Vinted_New_Version/data/searches.yaml"
+data_folder_simple_scrape = str(settings.paths.simple_scrape_dir)
+searches_yaml = str(settings.paths.searches_yaml)
 
 def removeRowsContainingWrongWords(df_item, wrong_words):
     df_cleaned = df_item.copy()
@@ -41,9 +42,13 @@ def filterOut_ImageDontMatchTitleItem(dictionary):
     for image in os.listdir(os.path.join(data_folder_simple_scrape, dictionary["folder"])):
         if image.endswith(".jpg") or image.endswith(".png"):
             if dictionary['search'] != " ":
-                prob_true, prob_false = clip.check_item(option1=dictionary['search'], option2=f"not {dictionary['search']}", image=os.path.join(data_folder_simple_scrape, dictionary["folder"], image))
+                from clip import check_item
+
+                prob_true, prob_false = check_item(option1=dictionary['search'], option2=f"not {dictionary['search']}", image=os.path.join(data_folder_simple_scrape, dictionary["folder"], image))
             else:
-                prob_true, prob_false = clip.check_item(option1=dictionary['folder'], option2=f"not {dictionary['folder']}", image=os.path.join(data_folder_simple_scrape, dictionary["folder"], image))    
+                from clip import check_item
+
+                prob_true, prob_false = check_item(option1=dictionary['folder'], option2=f"not {dictionary['folder']}", image=os.path.join(data_folder_simple_scrape, dictionary["folder"], image))    
 
             print(f"Image: {image}, prob_true: {prob_true}, prob_false: {prob_false}")
 
@@ -83,4 +88,5 @@ def apply_all_filters(dictionary, df_item_path):
 
 if __name__ == "__main__":
 
-    apply_all_filters(searches_yaml.jbl_charge_5, "/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/jbl_charge_5/old_df.csv")
+    sample_csv = settings.paths.simple_scrape_dir / "jbl_charge_5" / "old_df.csv"
+    apply_all_filters(searches_yaml.jbl_charge_5, str(sample_csv))
