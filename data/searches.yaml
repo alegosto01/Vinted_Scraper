@@ -1,29 +1,3 @@
-# jbl_charge_5:
-#   search: "JBL Charge 5"
-#   prezzoDa: "40"
-#   prezzoA: " "
-#   condition: "6-1"
-#   colore: ""
-#   brands: "JBL"
-#   sort: "newest_first"
-#   category: " "
-#   folder: "jbl_charge_5"
-#   enabled: true
-#   tags: [electronics, speaker, jbl]
-
-# spiderman_2_ps5:
-#   search: "Spiderman 2 PS5"
-#   prezzoDa: " "
-#   prezzoA: " "
-#   condition: "1"
-#   colore: " "
-#   brands: " "
-#   sort: "newest_first"
-#   category: " "
-#   folder: "spiderman_2_ps5"
-#   enabled: false
-#   tags: [game, ps5]
-
 ps4:
   search: "PlayStation 4"
   prezzoDa: "20"
@@ -39,19 +13,19 @@ ps4:
   tags: []
 
 
-gucci:
-  search: "Gucci"
-  prezzoDa: "20"
-  prezzoA: " "
-  condition: "6-1"
-  colore: " "
-  brands: " "
-  sort: "newest_first"
-  category: " "
-  folder: "gucci"
-  enabled: true
-  no_residential: true
-  tags: []
+# gucci:
+#   search: "Gucci"
+#   prezzoDa: "20"
+#   prezzoA: " "
+#   condition: "6-1"
+#   colore: " "
+#   brands: " "
+#   sort: "newest_first"
+#   category: " "
+#   folder: "gucci"
+#   enabled: true
+#   no_residential: true
+#   tags: []
 
 nike:
   search: "Nike"
@@ -67,19 +41,19 @@ nike:
   no_residential: true
   tags: []
 
-prada:
-  search: "Prada"
-  prezzoDa: "20"
-  prezzoA: " "
-  condition: "6-1"
-  colore: " "
-  brands: " "
-  sort: "newest_first"
-  category: " "
-  folder: "prada"
-  enabled: true
-  no_residential: true
-  tags: []
+# prada:
+#   search: "Prada"
+#   prezzoDa: "20"
+#   prezzoA: " "
+#   condition: "6-1"
+#   colore: " "
+#   brands: " "
+#   sort: "newest_first"
+#   category: " "
+#   folder: "prada"
+#   enabled: true
+#   no_residential: true
+#   tags: []
 
 # borse_griffate:
 #   search: " "
@@ -158,6 +132,52 @@ griffati_donna_all:
   sort: "newest_first"
   category: "Articoli Griffati/Articoli Griffati per Donna"
   folder: "griffati_donna_all"
+  enabled: true
+  no_residential: true
+  tags: []
+
+
+
+donna_accessori_gioielli:
+  search: " "
+  prezzoDa: "50"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Donna/Accessori/Gioielli"
+  folder: "donna_accessori_gioielli"
+  enabled: true
+  no_residential: true
+  tags: []
+
+
+hobby_collezionismo:
+  search: " "
+  prezzoDa: "30"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Hobby e Collezionismo/Collezionismo"
+  folder: "hobby_collezionismo"
+  enabled: true
+  no_residential: true
+  tags: []
+
+
+telefoni:
+  search: " "
+  prezzoDa: "50"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Elettronica /Telefoni cellulari e comunicazione"
+  folder: "telefoni"
   enabled: true
   no_residential: true
   tags: []

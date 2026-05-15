@@ -162,6 +162,30 @@ def ensure_state_columns(frame: pd.DataFrame) -> pd.DataFrame:
     for col, value in defaults.items():
         if col not in out.columns:
             out[col] = value
+    object_cols = [
+        "tracking_key",
+        "item_id",
+        "SearchName",
+        "Link",
+        "Title",
+        "Brand",
+        "Size",
+        "Price",
+        "Likes",
+        "model_version",
+        "model_threshold",
+        "first_seen_at",
+        "first_above_threshold_at",
+        "last_scored_at",
+        "last_snapshot_path",
+        "last_rechecked_at",
+        "current_market_status",
+        "last_recheck_status",
+        "sold_at",
+    ]
+    for col in object_cols:
+        if col in out.columns:
+            out[col] = out[col].astype("object")
     return out
 
 
@@ -260,8 +284,13 @@ def apply_recheck_results(tracked: pd.DataFrame, checked: pd.DataFrame, *, check
     tracked = ensure_state_columns(tracked)
     if checked.empty or tracked.empty:
         return tracked, pd.DataFrame()
-    checked = add_identity(checked.copy())
-    checked["tracking_key"] = checked.apply(lambda row: tracking_key(row.get("SearchName"), row.get("item_id")), axis=1)
+    checked = checked.copy()
+    if "item_id" not in checked.columns or checked["item_id"].astype(str).str.strip().eq("").all():
+        checked = add_identity(checked)
+    else:
+        checked["item_id"] = checked["item_id"].astype(str).str.strip()
+    if "tracking_key" not in checked.columns or checked["tracking_key"].astype(str).str.strip().eq("").all():
+        checked["tracking_key"] = checked.apply(lambda row: tracking_key(row.get("SearchName"), row.get("item_id")), axis=1)
     tracked = tracked.set_index("tracking_key", drop=False)
     history_rows: list[dict[str, Any]] = []
     for row in checked.to_dict(orient="records"):
@@ -269,9 +298,11 @@ def apply_recheck_results(tracked: pd.DataFrame, checked: pd.DataFrame, *, check
         if key not in tracked.index:
             continue
         rechecked_at = row.get("rechecked_at") or utc_now_iso()
-        status = row.get("LastCheckStatus", row.get("MarketStatus"))
+        market_status = row.get("MarketStatus")
+        last_check_status = row.get("LastCheckStatus")
+        status = market_status if pd.notna(market_status) and str(market_status).strip() else last_check_status
         tracked.at[key, "last_rechecked_at"] = rechecked_at
-        tracked.at[key, "last_recheck_status"] = status
+        tracked.at[key, "last_recheck_status"] = last_check_status
         tracked.at[key, "current_market_status"] = status
         if str(status or "").strip().lower() == "sold" and pd.isna(tracked.at[key, "sold_at"]):
             tracked.at[key, "sold_at"] = rechecked_at

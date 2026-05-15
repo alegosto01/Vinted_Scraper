@@ -219,6 +219,9 @@ categories = {"scarpe uomo": "1231",
               "Articoli Griffati/Articoli Griffati per Donna/Borse griffate": "2984",
               "Articoli Griffati/Articoli Griffati per Donna/Scarpe griffate": "2985",
               "Articoli Griffati/Articoli Griffati per Uomo": "2988",
-              "Articoli Griffati/Articoli Griffati per Donna": "2983",}
+              "Articoli Griffati/Articoli Griffati per Donna": "2983",
+              "Hobby e Collezionismo/Collezionismo": "4824",
+              "Elettronica /Telefoni cellulari e comunicazione": "3565",
+              "Donna/Accessori/Gioielli": "21"}
 
 

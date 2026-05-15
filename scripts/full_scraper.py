@@ -214,24 +214,47 @@ class Full_Scraper(Scraper):
         )
         return int(match.group(1)) if match else 0
 
-    def _hidden_picture_count_from_elements(self, elements: Any) -> int:
+    def _hidden_picture_count_from_elements(
+        self,
+        elements: Any,
+        *,
+        _seen: set[int] | None = None,
+        _depth: int = 0,
+        _max_depth: int = 4,
+    ) -> int:
         if elements is None:
             return 0
         if not isinstance(elements, (list, tuple, set)):
             elements = [elements]
+        if _seen is None:
+            _seen = set()
         hidden_count = 0
         for element in elements:
+            element_id = id(element)
+            if element_id in _seen:
+                continue
+            _seen.add(element_id)
             text = getattr(element, "text", "") or ""
             hidden_count = max(hidden_count, self._hidden_picture_count_from_text(text))
             attrs = getattr(element, "attrs", {}) or {}
             for attr in ("aria-label", "title", "data-testid", "data-test-id"):
                 hidden_count = max(hidden_count, self._hidden_picture_count_from_text(attrs.get(attr)))
+            if _depth >= _max_depth:
+                continue
             try:
                 children = element.find("*")
             except Exception:
                 children = []
             if children:
-                hidden_count = max(hidden_count, self._hidden_picture_count_from_elements(children))
+                hidden_count = max(
+                    hidden_count,
+                    self._hidden_picture_count_from_elements(
+                        children,
+                        _seen=_seen,
+                        _depth=_depth + 1,
+                        _max_depth=_max_depth,
+                    ),
+                )
         return hidden_count
 
     def extract_item_page_image_metadata(self, html_content, fallback_primary_url: Any = None) -> dict[str, Any]:
