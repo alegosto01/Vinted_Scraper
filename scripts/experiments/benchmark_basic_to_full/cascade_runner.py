@@ -57,6 +57,8 @@ setattr(__main__, "RulePriceScorer", RulePriceScorer)
 
 
 DEFAULT_MODALITY_RUN = "sold_status_feature_modalities_20260515_full_visual"
+DEFAULT_STUDENT_RUN = "student_fullvisual_score_20260515_154011"
+DEFAULT_STUDENT_RECALL_TARGET = 0.95
 STATE_FILE = "tracked_items.csv"
 EVENTS_FILE = "events.jsonl"
 WINDOW_HOURS = [*range(1, 25), *range(27, 49, 3), *range(60, 169, 12)]
@@ -143,9 +145,60 @@ def best_mode_table(run_name: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def teacher_student_run_dir(run_name: str) -> Path:
+    root = ROOT / "data" / "experiments" / "teacher_student_basic_filter" / "offline_runs"
+    if run_name == "latest":
+        candidates = sorted(root.glob("student_fullvisual_score_*"), key=lambda path: path.stat().st_mtime, reverse=True)
+        if not candidates:
+            raise FileNotFoundError(f"No teacher-student runs found under {root}")
+        return candidates[0]
+    path = root / run_name
+    if not path.exists():
+        raise FileNotFoundError(f"Teacher-student run not found: {path}")
+    return path
+
+
+def teacher_student_plan_table(run_name: str, target_recall: float) -> pd.DataFrame:
+    run_dir = teacher_student_run_dir(run_name)
+    tradeoff_path = run_dir / "target_tradeoff_by_search.csv"
+    best_path = run_dir / "best_student_by_search.csv"
+    if tradeoff_path.exists():
+        table = pd.read_csv(tradeoff_path)
+        matches = table[np.isclose(pd.to_numeric(table["target_teacher_recall"], errors="coerce"), float(target_recall))]
+        if not matches.empty:
+            return matches.copy()
+    if best_path.exists():
+        table = pd.read_csv(best_path)
+        return table.copy()
+    raise FileNotFoundError(f"No teacher-student plan table found in {run_dir}")
+
+
+def load_teacher_student_metadata(path: object) -> dict[str, Any]:
+    metadata_path = Path(str(path))
+    if metadata_path.suffix == ".pkl":
+        metadata_path = metadata_path.with_name(metadata_path.stem + "_metadata.json")
+    if not metadata_path.exists():
+        metadata_path = Path(str(path).replace(".pkl", "_metadata.json"))
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Teacher-student metadata not found for {path}")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    artifact = Path(str(metadata.get("artifact_path", "")))
+    if not artifact.exists():
+        raise FileNotFoundError(f"Teacher-student artifact not found: {artifact}")
+    metadata["metadata_path"] = str(metadata_path)
+    metadata["artifact_path"] = str(artifact)
+    metadata["approach"] = metadata.get("student_name") or metadata.get("approach") or metadata_path.stem
+    metadata["feature_mode"] = "teacher_student_basic"
+    metadata["score_kind"] = "regression_score"
+    return metadata
+
+
 def resolve_cascade_plan(
     *,
     run_name: str,
+    stage1_source: str = "teacher_student",
+    student_run: str = DEFAULT_STUDENT_RUN,
+    student_recall_target: float = DEFAULT_STUDENT_RECALL_TARGET,
     searches: list[str] | None = None,
     include_excluded: bool = False,
 ) -> list[dict[str, Any]]:
@@ -155,6 +208,14 @@ def resolve_cascade_plan(
     if searches:
         wanted = {search.lower() for search in searches}
         best = best.loc[best["search_name"].astype(str).str.lower().isin(wanted)].copy()
+    student_plan = pd.DataFrame()
+    if stage1_source == "teacher_student":
+        student_plan = teacher_student_plan_table(student_run, student_recall_target)
+        if not include_excluded:
+            student_plan = student_plan.loc[~student_plan["search_name"].astype(str).isin(DEFAULT_EXCLUDED_SEARCHES)].copy()
+        if searches:
+            wanted = {search.lower() for search in searches}
+            student_plan = student_plan.loc[student_plan["search_name"].astype(str).str.lower().isin(wanted)].copy()
     metadata_rows = metadata_rows_for_run(run_name)
     metadata_index = {
         (
@@ -167,22 +228,43 @@ def resolve_cascade_plan(
     }
     plan_rows: list[dict[str, Any]] = []
     for search in sorted(best["search_name"].dropna().astype(str).unique(), key=str.lower):
-        stage1 = best[(best["search_name"].astype(str) == search) & (best["feature_mode"].astype(str) == "basic_5")]
         stage2 = best[(best["search_name"].astype(str) == search) & (best["feature_mode"].astype(str) == "full_scrape_plus_visual")]
-        if stage1.empty or stage2.empty:
+        if stage2.empty:
             continue
-        stage1_row = stage1.iloc[0].to_dict()
         stage2_row = stage2.iloc[0].to_dict()
-        stage1_key = (search.lower(), "basic_5", str(stage1_row.get("approach")), int(stage1_row.get("seed", 42)))
         stage2_key = (search.lower(), "full_scrape_plus_visual", str(stage2_row.get("approach")), int(stage2_row.get("seed", 42)))
-        if stage1_key not in metadata_index or stage2_key not in metadata_index:
-            raise KeyError(f"Missing stage metadata for {search}: {stage1_key} or {stage2_key}")
+        if stage2_key not in metadata_index:
+            raise KeyError(f"Missing stage metadata for {search}: {stage2_key}")
+        if stage1_source == "teacher_student":
+            stage1 = student_plan[student_plan["search_name"].astype(str) == search]
+            if stage1.empty:
+                continue
+            stage1_row = stage1.iloc[0].to_dict()
+            stage1_metadata = load_teacher_student_metadata(stage1_row.get("artifact_path"))
+            stage1_approach = stage1_row.get("student_model")
+            stage1_threshold = float(stage1_row.get("student_threshold"))
+        elif stage1_source == "basic_5":
+            stage1 = best[(best["search_name"].astype(str) == search) & (best["feature_mode"].astype(str) == "basic_5")]
+            if stage1.empty:
+                continue
+            stage1_row = stage1.iloc[0].to_dict()
+            stage1_key = (search.lower(), "basic_5", str(stage1_row.get("approach")), int(stage1_row.get("seed", 42)))
+            if stage1_key not in metadata_index:
+                raise KeyError(f"Missing stage metadata for {search}: {stage1_key}")
+            stage1_metadata = metadata_index[stage1_key]
+            stage1_approach = stage1_row.get("approach")
+            stage1_threshold = float(stage1_row.get("threshold"))
+        else:
+            raise ValueError(f"Unknown stage1_source: {stage1_source}")
         plan_rows.append(
             {
                 "search_name": search,
-                "stage1_approach": stage1_row.get("approach"),
-                "stage1_threshold": float(stage1_row.get("threshold")),
-                "stage1_metadata": metadata_index[stage1_key],
+                "stage1_source": stage1_source,
+                "stage1_approach": stage1_approach,
+                "stage1_threshold": stage1_threshold,
+                "stage1_metadata": stage1_metadata,
+                "student_run": student_run if stage1_source == "teacher_student" else "",
+                "student_recall_target": float(student_recall_target) if stage1_source == "teacher_student" else np.nan,
                 "stage2_approach": stage2_row.get("approach"),
                 "stage2_threshold": float(stage2_row.get("threshold")),
                 "stage2_metadata": metadata_index[stage2_key],
@@ -237,7 +319,11 @@ def prepare_for_metadata(frame: pd.DataFrame, metadata: dict[str, Any]) -> pd.Da
 def score_with_metadata(frame: pd.DataFrame, metadata: dict[str, Any]) -> np.ndarray:
     model = load_pickle(Path(str(metadata["artifact_path"])))
     work = prepare_for_metadata(frame, metadata)
-    return score_with_model(model, work)
+    if hasattr(model, "predict_proba") or hasattr(model, "decision_function"):
+        scores = score_with_model(model, work)
+    else:
+        scores = model.predict(work)
+    return np.clip(np.asarray(scores, dtype=float), 0.0, 1.0)
 
 
 def score_stage1(candidates: pd.DataFrame, metadata: dict[str, Any], threshold: float) -> pd.DataFrame:
@@ -479,6 +565,9 @@ def run_collect_once(
     *,
     out_dir: Path,
     modality_run: str,
+    stage1_source: str,
+    student_run: str,
+    student_recall_target: float,
     searches: list[str] | None,
     dry_run: bool,
     max_stage1_items_per_search: int | None,
@@ -491,14 +580,23 @@ def run_collect_once(
     out_dir = assert_experiment_path(out_dir)
     for name in ("raw_snapshots", "stage1_scores", "full_items", "visual_features", "stage2_scores", "rechecks", "reports"):
         (out_dir / name).mkdir(parents=True, exist_ok=True)
-    plan_rows = resolve_cascade_plan(run_name=modality_run, searches=searches)
+    plan_rows = resolve_cascade_plan(
+        run_name=modality_run,
+        stage1_source=stage1_source,
+        student_run=student_run,
+        student_recall_target=student_recall_target,
+        searches=searches,
+    )
     plan_path = out_dir / "cascade_plan.csv"
     pd.DataFrame(
         [
             {
                 "SearchName": row["search_name"],
+                "Stage1Source": row["stage1_source"],
                 "Stage1Model": row["stage1_approach"],
                 "Stage1Threshold": row["stage1_threshold"],
+                "StudentRun": row.get("student_run", ""),
+                "StudentRecallTarget": row.get("student_recall_target", np.nan),
                 "Stage2Model": row["stage2_approach"],
                 "Stage2Threshold": row["stage2_threshold"],
             }
@@ -508,6 +606,9 @@ def run_collect_once(
     result: dict[str, Any] = {
         "run_dir": str(out_dir),
         "modality_run": modality_run,
+        "stage1_source": stage1_source,
+        "student_run": student_run if stage1_source == "teacher_student" else "",
+        "student_recall_target": float(student_recall_target) if stage1_source == "teacher_student" else None,
         "searches": [row["search_name"] for row in plan_rows],
         "dry_run": bool(dry_run),
         "recheck_schedule": "1h until 24h, 3h until 48h, 12h until 7d",
@@ -797,6 +898,9 @@ def parse_args() -> argparse.Namespace:
     collect = sub.add_parser("collect-once")
     collect.add_argument("--out-dir", default=None)
     collect.add_argument("--modality-run", default=DEFAULT_MODALITY_RUN)
+    collect.add_argument("--stage1-source", choices=["teacher_student", "basic_5"], default="teacher_student")
+    collect.add_argument("--student-run", default=DEFAULT_STUDENT_RUN)
+    collect.add_argument("--student-recall-target", type=float, default=DEFAULT_STUDENT_RECALL_TARGET)
     collect.add_argument("--search", action="append", default=[])
     collect.add_argument("--dry-run", action="store_true")
     collect.add_argument("--max-stage1-items-per-search", type=int, default=None)
@@ -816,6 +920,9 @@ def parse_args() -> argparse.Namespace:
     loop = sub.add_parser("run-loop")
     loop.add_argument("--out-dir", default=None)
     loop.add_argument("--modality-run", default=DEFAULT_MODALITY_RUN)
+    loop.add_argument("--stage1-source", choices=["teacher_student", "basic_5"], default="teacher_student")
+    loop.add_argument("--student-run", default=DEFAULT_STUDENT_RUN)
+    loop.add_argument("--student-recall-target", type=float, default=DEFAULT_STUDENT_RECALL_TARGET)
     loop.add_argument("--search", action="append", default=[])
     loop.add_argument("--collect-every-hours", type=float, default=1.0)
     loop.add_argument("--sleep-seconds", type=float, default=60.0)
@@ -844,6 +951,9 @@ def main() -> int:
         result = run_collect_once(
             out_dir=out_dir,
             modality_run=args.modality_run,
+            stage1_source=args.stage1_source,
+            student_run=args.student_run,
+            student_recall_target=args.student_recall_target,
             searches=args.search or None,
             dry_run=bool(args.dry_run),
             max_stage1_items_per_search=args.max_stage1_items_per_search,
@@ -872,6 +982,9 @@ def main() -> int:
                 run_collect_once(
                     out_dir=out_dir,
                     modality_run=args.modality_run,
+                    stage1_source=args.stage1_source,
+                    student_run=args.student_run,
+                    student_recall_target=args.student_recall_target,
                     searches=args.search or None,
                     dry_run=False,
                     max_stage1_items_per_search=args.max_stage1_items_per_search,
