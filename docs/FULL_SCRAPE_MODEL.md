@@ -211,6 +211,75 @@ From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiment
 
 `Borse_Griffate` is too small and degenerate for meaningful model selection here.
 
+## SHAP / Feature Contribution Analysis
+
+A readable SHAP-style analysis was added for the best `basic_5` and `full_scrape_plus_visual` models from the full visual run.
+
+Latest run:
+
+```text
+data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/shap_analysis/no_dino_20260515_232153/
+```
+
+Main files:
+
+- `shap_analysis_report.md`: compact human-readable summary.
+- `shap_model_summary.csv`: one row per explained search/mode/model.
+- `shap_feature_importance_long.csv`: feature-level contribution table.
+- `shap_group_importance.csv`: grouped importance by text, basic numeric, full-scrape, and readable visual features.
+- `shap_item_explanations.csv`: per-item top positive and negative drivers.
+
+Raw DINO embedding dimensions such as `DinoEmbedding_0000` are intentionally excluded from the reported SHAP tables. The trained models are still explained as trained, but the report hides those raw dimensions so the output stays readable. DINO summary features such as `DinoEmbeddingNorm` and `DinoOutlierScore` remain visible.
+
+Early signal from the SHAP run:
+
+- `basic_5` models are mostly driven by title/brand/size text plus `Price` and `Likes`.
+- `full_scrape_plus_visual` adds useful signals from full-scrape fields and readable photo-quality features, especially in `gucci`, `ps4`, and `prada`.
+- `CombinedBadPhotoScore`, sharpness, picture-count fields, description length, review/star fields, and upload-age text are among the most useful non-basic signals.
+
+## SearchCount/Page Ablation And Upload-Date Check
+
+Latest ablation run:
+
+```text
+data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/ablation_analysis/no_search_count_page_20260515_233324/
+```
+
+Main files:
+
+- `ablation_upload_date_report.md`: human-readable summary.
+- `ablation_vs_original.csv`: original vs no-`SearchCount`/no-`Page` comparison.
+- `upload_date_shap_summary.csv`: upload-date SHAP share by search and mode.
+- `upload_date_bucket_distribution.csv`: sold-rate by parsed upload-age bucket.
+- `upload_date_bucket_by_fullscrape_reason.csv`: upload-age bucket by collection reason.
+
+Result summary:
+
+- Removing `SearchCount` and `Page` usually preserved strict-threshold precision, but reduced PR AUC in several searches.
+- The largest PR AUC drops were in `griffati_donna_all` and `griffati_uomo_all`; these fields were clearly helping ranking quality there.
+- `gucci`, `nike`, `prada`, and `ps4` were more robust, especially in `full_scrape_plus_visual`.
+- Upload-date looked important mostly for `gucci`, `ps4`, and `prada`, but the reason check showed it is entangled with dataset creation: `sold_backfill_stage` rows tend to be older, while `unsold_balance_stage` rows tend to include very recent listings.
+
+## Upload_date Decision (implemented 2026-05-16)
+
+`Upload_date` (text) and `Upload_date_days` (numeric) are now **excluded by default** from the `full_scrape` and `full_scrape_plus_visual` feature pools in `compare_feature_modalities.py`.
+
+Reason: the historical value is entangled with dataset construction origin — `sold_backfill_stage` rows are systematically older, `unsold_balance_stage` rows are newer — so the model learns dataset source rather than a real freshness signal.
+
+To reproduce the old behaviour for comparison:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/compare_feature_modalities.py --all-searches --include-upload-date
+```
+
+For the recommended clean run (default):
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/compare_feature_modalities.py --all-searches
+```
+
+Future path: once live paper-trading collects a `FirstSeenAt` timestamp for each item, compute upload age at first observation time (`UploadAgeDaysAtObservation`) and add it back as a clean live feature.
+
 ## How To Rerun
 
 ### Build Datasets Only
@@ -243,6 +312,20 @@ From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiment
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/model_sweep.py --task sold_status --all-searches --robustness
 ```
 
+### Run Readable SHAP Analysis
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/shap_analysis.py --max-background-rows 120 --max-explain-rows 180
+```
+
+By default this explains `basic_5` and `full_scrape_plus_visual` models and skips raw DINO embedding dimensions in the output.
+
+### Run SearchCount/Page Ablation And Upload-Date Analysis
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/ablation_upload_date_analysis.py --all-searches
+```
+
 ## Known Constraints
 
 - The sweep currently requires at least `50` eligible rows and both label classes to train for a search.
@@ -250,6 +333,7 @@ From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiment
 - The full-scrape sweep is offline only. It does not trigger paper trading, timers, or live scraping.
 - The current output root is fully separate from the deal-finder output root.
 - The current user intent is evaluation and comparison, not deployment.
+- Tree-model SHAP requires the optional `shap` package in the `vinted_scraper` environment.
 
 ## Recommended Next Steps For Another Agent
 

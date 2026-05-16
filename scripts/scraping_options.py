@@ -1129,7 +1129,7 @@ def scrapeToGetManuallyFilteredItems(programmed_searches):
         sleep_if_positive(300) #300  # Sleep to avoid hitting the server too fast
 
 
-# sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/Vinted_New_Version/out/deals_ranked.csv")
+# sold = returnNewSoldItemsInCsv_parallel("/home/ale/Desktop/vinted/Vinted_New_Version/out/deals_ranked.csv")
 # print(sold)
 
 scrapeSpecificItems_parallel = scrape_specific_items_parallel

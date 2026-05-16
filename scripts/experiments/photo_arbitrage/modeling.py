@@ -168,7 +168,7 @@ def train_photo_quality_model(labels: pd.DataFrame, *, method_config: MethodConf
 def save_model(model: Any, metadata: dict[str, Any], *, model_dir: Path = MODELS_DIR) -> tuple[Path | None, Path]:
     model_dir = assert_photo_path(model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = pd.Timestamp.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = pd.Timestamp.now('UTC').strftime("%Y%m%d_%H%M%S")
     metadata_path = model_dir / f"{MODEL_VERSION}_{timestamp}_metadata.json"
     model_path = model_dir / f"{MODEL_VERSION}_{timestamp}.pkl"
     if model is not None:

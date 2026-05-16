@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-load_dotenv("/home/ale/Desktop/Vinted_New_Version/scripts/telegram_scripts/bot_env.env")  # Load environment variables from .env file
+load_dotenv("/home/ale/Desktop/vinted/Vinted_New_Version/scripts/telegram_scripts/bot_env.env")  # Load environment variables from .env file
 TOKEN = os.getenv("BOT_TOKEN")  # put BOT_TOKEN=123:ABC in a .env file
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):

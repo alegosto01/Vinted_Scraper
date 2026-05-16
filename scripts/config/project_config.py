@@ -40,10 +40,45 @@ class PathsConfig:
 class TelegramConfig:
     bot_token: str | None = os.getenv('BOT_TOKEN')
     chat_id: str | None = os.getenv('CHAT_ID')
+    allowed_user_id: str | None = os.getenv('TELEGRAM_ALLOWED_USER_ID')
+    image_bot_token: str | None = os.getenv('IMAGE_BOT_TOKEN')
+    image_allowed_user_id: str | None = os.getenv('IMAGE_ALLOWED_USER_ID')
 
     @property
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
+
+    @property
+    def resolved_allowed_user_id(self) -> int | None:
+        return self._resolve_user_id(self.allowed_user_id, self.chat_id)
+
+    @property
+    def resolved_image_allowed_user_id(self) -> int | None:
+        # falls back to the main bot's allowed user / chat id
+        return self._resolve_user_id(
+            self.image_allowed_user_id or self.allowed_user_id,
+            self.chat_id,
+        )
+
+    @staticmethod
+    def _resolve_user_id(explicit_value: str | None, chat_id: str | None) -> int | None:
+        explicit = (explicit_value or '').strip()
+        if explicit:
+            try:
+                return int(explicit)
+            except ValueError:
+                return None
+
+        chat = (chat_id or '').strip()
+        if not chat:
+            return None
+        try:
+            resolved = int(chat)
+        except ValueError:
+            return None
+        if resolved > 0:
+            return resolved
+        return None
 
 
 @dataclass(frozen=True)

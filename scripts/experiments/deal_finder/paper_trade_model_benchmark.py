@@ -464,7 +464,7 @@ def recheck_benchmark_due(
         no_residential=True,
     )
     checked["rechecked_at"] = utc_now_iso()
-    checked_path = out_dir / f"benchmark_recheck_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    checked_path = out_dir / f"benchmark_recheck_{pd.Timestamp.now('UTC').strftime('%Y%m%d_%H%M%S')}.csv"
     checked.to_csv(checked_path, index=False)
 
     checked_by_id = add_identity(checked).drop_duplicates(subset=["item_id"], keep="first").set_index("item_id")

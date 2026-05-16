@@ -807,10 +807,10 @@ class Full_Scraper(Scraper):
                 time.sleep(post_fetch_sleep)
             try:
                 reviews_element = html_content.find("div[class='web_ui__Rating__rating web_ui__Rating__small']", first=True).text
-                # reviews_element = html_content.find("h4[class='web_ui__Text__text web_ui__Text__caption web_ui__Text__left']").text
                 reviews_count = int(reviews_element)
-            except Exception as e:
-                print(f"Error getting reviews count: {e} PAGE FAILED TO LOAD")
+            except (ValueError, TypeError):
+                reviews_count = 0  # seller has no reviews ("Nessuna recensione" or similar)
+            except Exception:
                 reviews_count = 0
 
             # try:
@@ -1092,7 +1092,7 @@ class Full_Scraper(Scraper):
 
             sold_full_scraped_df = pd.concat([sold_full_scraped_df, new_sold_df], ignore_index=True)
             sold_full_scraped_df = sold_full_scraped_df.drop_duplicates(subset=sold_dedupe_subset, keep="first")
-            sold_full_scraped_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/sold_df.csv", index=False)
+            sold_full_scraped_df.to_csv(f"/home/ale/Desktop/vinted/Vinted_New_Version/data/sold_df.csv", index=False)
             print(f"Actually sold items: {len(actually_sold_items)}")
 
         # Remove and manage old items in the search
@@ -1101,7 +1101,7 @@ class Full_Scraper(Scraper):
         full_unsold_dedupe_subset = ["Dataid"] if "Dataid" in unsold_full_scraped_df.columns else ["Link"] if "Link" in unsold_full_scraped_df.columns else None
         if full_unsold_dedupe_subset:
             unsold_full_scraped_df = unsold_full_scraped_df.drop_duplicates(subset=full_unsold_dedupe_subset, keep="first")
-        unsold_full_scraped_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/unsold_df.csv", index=False)
+        unsold_full_scraped_df.to_csv(f"/home/ale/Desktop/vinted/Vinted_New_Version/data/unsold_df.csv", index=False)
 
         if old_seller_df["SellerId"].notna().any():
             max_id = old_seller_df["SellerId"].max()
@@ -1121,7 +1121,7 @@ class Full_Scraper(Scraper):
 
 
         old_seller_df = pd.concat([old_seller_df, new_seller_df], ignore_index=True)
-        old_seller_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/sellers_df.csv", index=False)            
+        old_seller_df.to_csv(f"/home/ale/Desktop/vinted/Vinted_New_Version/data/sellers_df.csv", index=False)            
 
         if len(new_df) == 0:
             print("No new items to process.")
@@ -1130,7 +1130,7 @@ class Full_Scraper(Scraper):
             print(new_df.index.duplicated().any())  # True if there are duplicates
 
             old_df = pd.concat([old_df, new_df], ignore_index=True)
-            old_df.to_csv(f"/home/ale/Desktop/Vinted_New_Version/data/old_df.csv", index=False)
+            old_df.to_csv(f"/home/ale/Desktop/vinted/Vinted_New_Version/data/old_df.csv", index=False)
             
         print("New seller df:")
         print(new_seller_df)

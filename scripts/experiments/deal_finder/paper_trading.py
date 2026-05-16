@@ -270,7 +270,7 @@ def collect_snapshot(
         metadata = apply_threshold_override(qualified_row["model_metadata"], search_name, threshold_overrides)
         scraper = Simple_scraper()
         timestamp = utc_now_iso()
-        search_count = int(pd.Timestamp.utcnow().timestamp())
+        search_count = int(pd.Timestamp.now('UTC').timestamp())
         rows = scraper.scrape_products_serial(search, search_count, pages_to_scrape=1, get_images=False)
         candidates = pd.DataFrame(rows)
         if candidates.empty:
@@ -366,7 +366,7 @@ def recheck_due(
         no_residential=True,
     )
     checked["rechecked_at"] = utc_now_iso()
-    checked_path = live_run / f"recheck_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    checked_path = live_run / f"recheck_{pd.Timestamp.now('UTC').strftime('%Y%m%d_%H%M%S')}.csv"
     checked.to_csv(checked_path, index=False)
 
     checked_by_id = add_identity(checked).set_index("item_id")

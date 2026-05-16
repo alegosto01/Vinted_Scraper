@@ -8,7 +8,7 @@ from clip import check_item
 
 def compare_item_to_the_similar(row):
 
-    images_folder_path = f"/home/ale/Desktop/Vinted_New_Version/items_analysis/{row['Title']}"
+    images_folder_path = f"/home/ale/Desktop/vinted/Vinted_New_Version/items_analysis/{row['Title']}"
     os.makedirs(images_folder_path, exist_ok=True)
 
 
@@ -32,7 +32,7 @@ def compare_item_to_the_similar(row):
         brand_id = utils.find_brand_id(row["Link"])
         
         brand_df.loc[len(brand_df)] = [brand_name, brand_id]
-        brand_df.to_csv("/home/ale/Desktop/Vinted_New_Version/data/brand_ids.csv", index=False)
+        brand_df.to_csv("/home/ale/Desktop/vinted/Vinted_New_Version/data/brand_ids.csv", index=False)
 
     row_dict = {
         "search": row["Title"],
@@ -163,8 +163,8 @@ def compare_item_to_the_similar(row):
 analysis_sold_df = pd.DataFrame(columns=['Title', 'ItemPrice', 'MeanComparison', 'StandardDeviation', 'z_score', 'TitleImageMatch', 'BlurrynessMatch'])
 
 
-sold_df = pd.read_csv("/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/sold_df.csv")
-brand_df = pd.read_csv("/home/ale/Desktop/Vinted_New_Version/data/brand_ids.csv")
+sold_df = pd.read_csv("/home/ale/Desktop/vinted/Vinted_New_Version/data/simple_scrape/sold_df.csv")
+brand_df = pd.read_csv("/home/ale/Desktop/vinted/Vinted_New_Version/data/brand_ids.csv")
 
 sold_df = sold_df[:2]
 

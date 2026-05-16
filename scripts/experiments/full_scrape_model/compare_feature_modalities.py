@@ -44,7 +44,7 @@ FEATURE_MODES = ("basic_5", "full_scrape", "full_scrape_plus_visual")
 BASIC_NUMERIC = ["Price", "Likes"]
 BASIC_TEXT = ["Title", "Brand", "Size"]
 
-FULL_NUMERIC = [
+FULL_NUMERIC_BASE = [
     "Price",
     "Likes",
     "Page",
@@ -56,7 +56,6 @@ FULL_NUMERIC = [
     "PictureCount",
     "VisiblePictureCount",
     "HiddenPictureCount",
-    "Upload_date_days",
     "description_char_len",
     "description_token_count",
     "condition_present",
@@ -65,17 +64,30 @@ FULL_NUMERIC = [
     "has_reviews",
     "has_stars",
 ]
+# Upload_date_days is excluded by default: the historical value is entangled with
+# dataset construction (sold_backfill rows are older, unsold_balance rows newer),
+# so the model learns dataset origin rather than a real freshness signal.
+UPLOAD_DATE_NUMERIC = ["Upload_date_days"]
 
-FULL_TEXT = [
+FULL_TEXT_BASE = [
     "Title",
     "Brand",
     "Size",
     "Description",
     "Condition",
-    "Upload_date",
     "SellerName",
     "Location",
 ]
+# Same reasoning: Upload_date text is excluded by default.
+UPLOAD_DATE_TEXT = ["Upload_date"]
+
+
+def full_numeric(*, include_upload_date: bool) -> list[str]:
+    return FULL_NUMERIC_BASE + (UPLOAD_DATE_NUMERIC if include_upload_date else [])
+
+
+def full_text(*, include_upload_date: bool) -> list[str]:
+    return FULL_TEXT_BASE + (UPLOAD_DATE_TEXT if include_upload_date else [])
 
 VISUAL_NUMERIC = [
     "SimpleBadPhotoScore",
@@ -244,14 +256,16 @@ def available_numeric_features(df: pd.DataFrame, candidates: list[str]) -> list[
     return [col for col in candidates if col in df.columns]
 
 
-def mode_feature_pools(df: pd.DataFrame, mode: str, embedding_cols: list[str]) -> tuple[list[str], list[str]]:
+def mode_feature_pools(df: pd.DataFrame, mode: str, embedding_cols: list[str], *, include_upload_date: bool) -> tuple[list[str], list[str]]:
     if mode == "basic_5":
         return available_numeric_features(df, BASIC_NUMERIC), available_text_features(df, BASIC_TEXT)
+    fn = full_numeric(include_upload_date=include_upload_date)
+    ft = full_text(include_upload_date=include_upload_date)
     if mode == "full_scrape":
-        return available_numeric_features(df, FULL_NUMERIC), available_text_features(df, FULL_TEXT)
+        return available_numeric_features(df, fn), available_text_features(df, ft)
     if mode == "full_scrape_plus_visual":
-        numeric = available_numeric_features(df, FULL_NUMERIC + VISUAL_NUMERIC + embedding_cols)
-        return numeric, available_text_features(df, FULL_TEXT)
+        numeric = available_numeric_features(df, fn + VISUAL_NUMERIC + embedding_cols)
+        return numeric, available_text_features(df, ft)
     raise ValueError(f"Unknown feature mode: {mode}")
 
 
@@ -261,14 +275,16 @@ def select_mode_features(
     spec: base_sweep.ApproachSpec,
     mode: str,
     embedding_cols: list[str],
+    include_upload_date: bool,
 ) -> tuple[list[str], list[str]]:
-    numeric_pool, text_pool = mode_feature_pools(df, mode, embedding_cols)
+    numeric_pool, text_pool = mode_feature_pools(df, mode, embedding_cols, include_upload_date=include_upload_date)
     if spec.kind == "rules":
         return [col for col in ("price_num", "likes_num", "page_num", "Price", "Likes", "Page") if col in df.columns], []
     if spec.name == "logistic_v1_baseline":
-        numeric = available_numeric_features(df, BASIC_NUMERIC if mode == "basic_5" else FULL_NUMERIC)
+        fn = full_numeric(include_upload_date=include_upload_date)
+        numeric = available_numeric_features(df, BASIC_NUMERIC if mode == "basic_5" else fn)
         if mode == "full_scrape_plus_visual":
-            numeric = available_numeric_features(df, FULL_NUMERIC + VISUAL_NUMERIC + embedding_cols)
+            numeric = available_numeric_features(df, fn + VISUAL_NUMERIC + embedding_cols)
         text = text_pool
     elif spec.use_text:
         numeric = numeric_pool
@@ -296,6 +312,7 @@ def evaluate_model(
     seed: int,
     run_prefix: str,
     embedding_cols: list[str],
+    include_upload_date: bool,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     work = add_full_engineered_features(frame)
@@ -306,7 +323,7 @@ def evaluate_model(
         return {"search_name": search_name, "feature_mode": mode, "approach": spec.name, "seed": seed, "status": "skipped", "reason": "training split has only one label class"}
 
     mode_spec = make_mode_spec(spec, mode)
-    numeric, text = select_mode_features(splits.train, spec=mode_spec, mode=mode, embedding_cols=embedding_cols)
+    numeric, text = select_mode_features(splits.train, spec=mode_spec, mode=mode, embedding_cols=embedding_cols, include_upload_date=include_upload_date)
     if not numeric and not text:
         return {"search_name": search_name, "feature_mode": mode, "approach": spec.name, "seed": seed, "status": "skipped", "reason": "no usable features"}
     if mode_spec.kind == "linear_svm_calibrated" and splits.train[TARGET_COL].value_counts().min() < 3:
@@ -353,6 +370,7 @@ def evaluate_model(
         "train_rows": int(len(splits.train)),
         "fit_train_rows": int(len(fit_frame)),
         "visual_embedding_dims_used": int(len([c for c in numeric if c.startswith("DinoEmbedding_")])),
+        "include_upload_date": bool(include_upload_date),
     }
     write_json(artifact_path.with_name(artifact_path.stem + "_metadata.json"), base_sweep.to_builtin(metadata))
 
@@ -506,6 +524,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=base_sweep.DEFAULT_SEED)
     parser.add_argument("--include-dino-embedding", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max-dino-dims", type=int, default=None, help="Optional cap for DINO embedding dimensions; default uses all.")
+    parser.add_argument(
+        "--include-upload-date",
+        action="store_true",
+        default=False,
+        help=(
+            "Re-include Upload_date (text) and Upload_date_days (numeric) in full_scrape feature pools. "
+            "Excluded by default because the historical value is entangled with dataset construction origin, "
+            "not a clean live freshness signal."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -588,6 +616,7 @@ def main() -> int:
                         seed=args.seed,
                         run_prefix=out_dir.name,
                         embedding_cols=embedding_cols,
+                        include_upload_date=args.include_upload_date,
                     )
                     metrics.append(row)
                     print(
@@ -640,6 +669,7 @@ def main() -> int:
                 "seed": args.seed,
                 "visual_source": str(visual_path),
                 "include_dino_embedding": bool(args.include_dino_embedding),
+                "include_upload_date": bool(args.include_upload_date),
                 "max_dino_dims": args.max_dino_dims,
                 "dataset_summary": dataset_summary,
                 "outputs": {

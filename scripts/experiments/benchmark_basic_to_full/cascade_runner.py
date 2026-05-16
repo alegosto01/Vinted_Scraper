@@ -62,6 +62,26 @@ DEFAULT_STUDENT_RECALL_TARGET = 0.95
 STATE_FILE = "tracked_items.csv"
 EVENTS_FILE = "events.jsonl"
 WINDOW_HOURS = [*range(1, 25), *range(27, 49, 3), *range(60, 169, 12)]
+STATE_OBJECT_COLUMNS = [
+    "tracking_key",
+    "item_id",
+    "SearchName",
+    "Link",
+    "Title",
+    "Brand",
+    "Size",
+    "first_stage1_pass_at",
+    "last_seen_at",
+    "last_rechecked_at",
+    "last_recheck_status",
+    "sold_at",
+    "Stage1Model",
+    "Stage2Model",
+    "Stage2Passed",
+    "Stage2Status",
+    "FullScrapeStatus",
+    "QualityMethodStatus",
+]
 
 
 def window_label(hours: int | float) -> str:
@@ -482,6 +502,9 @@ def ensure_state(frame: pd.DataFrame) -> pd.DataFrame:
             missing[col] = value
     if missing:
         out = pd.concat([out, pd.DataFrame(missing, index=out.index)], axis=1)
+    for col in STATE_OBJECT_COLUMNS:
+        if col in out.columns:
+            out[col] = out[col].astype("object")
     return out
 
 
@@ -489,7 +512,13 @@ def merge_tracked(existing: pd.DataFrame, updates: pd.DataFrame, *, observed_at:
     existing = ensure_state(existing)
     if updates.empty:
         return existing
+    existing_item_ids = updates["item_id"].copy() if "item_id" in updates.columns else None
     updates = add_identity(updates)
+    if existing_item_ids is not None:
+        updates["item_id"] = updates["item_id"].where(
+            updates["item_id"].astype(str).str.strip().ne(""),
+            existing_item_ids,
+        )
     updates["tracking_key"] = updates.apply(lambda row: tracking_key(row.get("SearchName"), row.get("item_id")), axis=1)
     if existing.empty:
         existing = ensure_state(pd.DataFrame())
@@ -505,7 +534,16 @@ def merge_tracked(existing: pd.DataFrame, updates: pd.DataFrame, *, observed_at:
         else:
             for col, value in row.items():
                 if col in existing.columns and pd.notna(value):
-                    existing.at[key, col] = value
+                    if pd.api.types.is_numeric_dtype(existing[col]) and (
+                        isinstance(value, (bool, np.bool_))
+                        or not isinstance(value, (int, float, np.integer, np.floating))
+                    ):
+                        existing[col] = existing[col].astype("object")
+                    try:
+                        existing.at[key, col] = value
+                    except (TypeError, ValueError):
+                        existing[col] = existing[col].astype("object")
+                        existing.at[key, col] = value
             existing.at[key, "last_seen_at"] = observed_at
     return ensure_state(existing.reset_index(drop=True))
 
@@ -726,7 +764,7 @@ def run_collect_once(
         "summary_path": str(summary_path),
         "tracked_path": str(out_dir / STATE_FILE),
         "tracked_rows": int(len(tracked)),
-        "final_selected_rows": int(pd.Series(tracked.get("Stage2Passed", [])).fillna(False).astype(str).str.lower().isin(["true", "1"]).sum()),
+        "final_selected_rows": int(bool_series(pd.Series(tracked.get("Stage2Passed", []))).sum()),
         "summary": summary_rows,
     }
     write_json(out_dir / "latest_status.json", result)
@@ -765,7 +803,7 @@ def run_recheck_due(*, out_dir: Path, dry_run: bool, max_workers: int = 3) -> di
     checked["rechecked_at"] = utc_now_iso()
     checked = add_identity(checked)
     checked["tracking_key"] = checked.apply(lambda row: tracking_key(row.get("SearchName"), row.get("item_id")), axis=1)
-    checked_path = out_dir / "rechecks" / f"recheck_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    checked_path = out_dir / "rechecks" / f"recheck_{pd.Timestamp.now('UTC').strftime('%Y%m%d_%H%M%S')}.csv"
     checked.to_csv(checked_path, index=False)
     checked_by_key = checked.drop_duplicates("tracking_key", keep="last").set_index("tracking_key")
     tracked["tracking_key"] = tracked.apply(lambda row: tracking_key(row.get("SearchName"), row.get("item_id")), axis=1)
@@ -791,7 +829,7 @@ def run_recheck_due(*, out_dir: Path, dry_run: bool, max_workers: int = 3) -> di
 
 
 def bool_series(series: pd.Series) -> pd.Series:
-    return series.fillna(False).astype(str).str.lower().isin(["true", "1", "yes"])
+    return series.fillna(False).astype(str).str.strip().str.lower().isin(["true", "1", "1.0", "yes"])
 
 
 def generate_report(*, out_dir: Path) -> dict[str, Any]:

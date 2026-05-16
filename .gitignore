@@ -9,8 +9,6 @@ __pycache__/
 # Local environment
 .env
 .env.*
-*.env
-*.env.*
 !.env.example
 .venv/
 venv/
@@ -95,15 +93,9 @@ data/**/full_scrape_*/
 data/**/final_buy_filter/
 data/**/logs/
 data/**/tuning_reports/
-data/clustering_approach/
-data/models/
-data/full_scrape/
 data/tmp_single_checks/
 data/recent_sold_truth_check_*/
 data/experiments/
-
-# Local secrets created by notification/bot integrations
-scripts/telegram_scripts/*.env
 
 # Keep config-like data files versioned
 !data/searches.yaml
@@ -119,3 +111,7 @@ out_subclustering/
 debug_vinted_page.html
 ihwbvivbr.csv
 replacements.txt
+
+# IDE / local configs
+.claude/
+scripts/telegram_scripts/bot_env.env
