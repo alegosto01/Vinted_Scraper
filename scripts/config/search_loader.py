@@ -32,6 +32,7 @@ class SearchConfig:
     good_deal_min_score: float = 2.0
     good_deal_min_confidence: float = 0.6
     no_residential: bool = False
+    cascade_only: bool = False
 
     def __post_init__(self):
         if self.tags is None:

@@ -100,7 +100,7 @@ async def improve_photo(image_bytes: bytes, item_context: str | None = None) -> 
             prompt=prompt,
             n=1,
             size="1024x1024",
-            quality="high",
+            quality="medium",
         )
         return base64.b64decode(result.data[0].b64_json)
 
@@ -132,7 +132,7 @@ async def extract_item_context_from_screenshot(image_bytes: bytes) -> str:
                 {"text": prompt},
             ],
         }],
-        "generationConfig": {"maxOutputTokens": 120},
+        "generationConfig": {"maxOutputTokens": 64},
     }
 
     url = f"{_GEMINI_API_BASE}/{_GEMINI_VISION_MODEL}:generateContent?key={api_key}"

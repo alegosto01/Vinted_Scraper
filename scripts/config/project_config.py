@@ -44,6 +44,15 @@ class TelegramConfig:
     image_bot_token: str | None = os.getenv('IMAGE_BOT_TOKEN')
     image_allowed_user_id: str | None = os.getenv('IMAGE_ALLOWED_USER_ID')
 
+    # Accountability pipeline chat IDs
+    accountability_enabled: bool = os.getenv('ACCOUNTABILITY_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+    recommended_deals_chat_id: str | None = os.getenv('RECOMMENDED_DEALS_CHAT_ID')
+    bought_items_chat_id: str | None = os.getenv('BOUGHT_ITEMS_CHAT_ID')
+    drafting_items_chat_id: str | None = os.getenv('DRAFTING_ITEMS_CHAT_ID')
+    selling_items_chat_id: str | None = os.getenv('SELLING_ITEMS_CHAT_ID')
+    resold_chat_id: str | None = os.getenv('RESOLD_CHAT_ID')
+    tracking_chat_id: str | None = os.getenv('TRACKING_CHAT_ID')
+
     @property
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
@@ -59,6 +68,30 @@ class TelegramConfig:
             self.image_allowed_user_id or self.allowed_user_id,
             self.chat_id,
         )
+
+    @property
+    def resolved_recommended_deals_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.recommended_deals_chat_id, self.chat_id)
+
+    @property
+    def resolved_bought_items_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.bought_items_chat_id, self.chat_id)
+
+    @property
+    def resolved_drafting_items_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.drafting_items_chat_id, self.chat_id)
+
+    @property
+    def resolved_selling_items_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.selling_items_chat_id, self.chat_id)
+
+    @property
+    def resolved_resold_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.resold_chat_id, self.chat_id)
+
+    @property
+    def resolved_tracking_chat_id(self) -> int | None:
+        return self._resolve_chat_id(self.tracking_chat_id, self.chat_id)
 
     @staticmethod
     def _resolve_user_id(explicit_value: str | None, chat_id: str | None) -> int | None:
@@ -78,6 +111,22 @@ class TelegramConfig:
             return None
         if resolved > 0:
             return resolved
+        return None
+
+    @staticmethod
+    def _resolve_chat_id(explicit_value: str | None, fallback_chat_id: str | None) -> int | None:
+        explicit = (explicit_value or '').strip()
+        if explicit:
+            try:
+                return int(explicit)
+            except ValueError:
+                return None
+        fallback = (fallback_chat_id or '').strip()
+        if fallback:
+            try:
+                return int(fallback)
+            except ValueError:
+                return None
         return None
 
 

@@ -766,6 +766,41 @@ def scrape_specific_items_parallel(
         total_new = sum(s.get('new', 0) for s in summaries)
         LOGGER.info('Scheduler summary iteration=%s searches=%s scraped=%s new=%s', scheduler_iterations, len(summaries), total_scraped, total_new)
 
+        # ── Experiment tracker ──────────────────────────────────────────────
+        try:
+            from experiments.tracking.db import init_db, log_scraper_iteration
+            init_db()
+            events = []
+            for s in summaries:
+                folder_name = getattr(s.get('ricerca'), 'folder', '')
+                plan = plan_by_folder.get(folder_name)
+                events.append({
+                    "search_name": folder_name,
+                    "scraped_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                    "pages_scraped": pages_to_scrape,
+                    "new_items": s.get('new', 0),
+                    "sold_found": 0,  # sold detection happens in compare_and_save, not tracked here yet
+                    "proxy_type": "datacenter",  # default; could be enriched later
+                    "error": None,
+                    "schedule_delay_seconds": plan.get('recommended_delay_seconds') if plan else None,
+                })
+            log_scraper_iteration({
+                "iteration": scheduler_iterations,
+                "started_at": now_ts.isoformat(),
+                "finished_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                "searches_due": len(due_plans),
+                "searches_scraped": len(summaries),
+                "total_new_items": total_new,
+                "total_sold_found": 0,
+                "proxy_datacenter_hits": len(summaries),
+                "proxy_residential_hits": 0,
+                "proxy_errors": sum(1 for s in summaries if s.get('error')),
+                "events": events,
+            })
+        except Exception as exc:
+            LOGGER.warning('[tracking] failed to log scraper iteration: %s', exc)
+        # ─────────────────────────────────────────────────────────────────────
+
         if delay_between_batch_of_searches > 0:
             sleep_if_positive(min(delay_between_batch_of_searches, MIN_SCHEDULER_SLEEP_SECONDS))
 

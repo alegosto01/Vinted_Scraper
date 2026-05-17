@@ -608,6 +608,25 @@ def process_one_background_eventual_sale(search) -> bool:
             len(merged),
             len(merged_sold),
         )
+
+        # ── Experiment tracker ──────────────────────────────────────────────
+        try:
+            from experiments.tracking.db import init_db, log_eventual_sale_check
+            init_db()
+            log_eventual_sale_check({
+                "search_name": search.folder,
+                "checked_at": datetime.now().astimezone().isoformat(),
+                "source": source or "background",
+                "items_checked": len(merged),
+                "sold_found": len(merged_sold),
+                "still_unsold": len(merged) - len(merged_sold),
+                "errors": 0,
+                "duration_seconds": None,
+            })
+        except Exception as exc:
+            LOGGER.warning("[tracking] failed to log eventual sale check: %s", exc)
+        # ─────────────────────────────────────────────────────────────────────
+
         return bool(not sold_df.empty)
 
 
@@ -734,3 +753,21 @@ def refresh_daily_eventual_sales(programmed_searches, today_iso: str | None = No
                 }
             )
             write_schedule_state(str(output_folder), state)
+
+            # ── Experiment tracker ──────────────────────────────────────────
+            try:
+                from experiments.tracking.db import init_db, log_eventual_sale_check
+                init_db()
+                log_eventual_sale_check({
+                    "search_name": search.folder,
+                    "checked_at": datetime.now().astimezone().isoformat(),
+                    "source": "daily_refresh",
+                    "items_checked": int(summary.get("n_checked", 0) or 0),
+                    "sold_found": int(summary.get("n_sold", 0) or 0),
+                    "still_unsold": int(summary.get("n_checked", 0) or 0) - int(summary.get("n_sold", 0) or 0),
+                    "errors": 0,
+                    "duration_seconds": None,
+                })
+            except Exception as exc:
+                LOGGER.warning("[tracking] failed to log daily refresh: %s", exc)
+            # ─────────────────────────────────────────────────────────────────

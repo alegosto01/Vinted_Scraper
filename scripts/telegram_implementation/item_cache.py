@@ -45,7 +45,13 @@ def make_item_cache_key(item: Mapping[str, Any]) -> str:
     preferred = normalized.get("item_id") or normalized.get("Dataid") or normalized.get("Link") or normalized.get("Title") or "item"
     digest_input = json.dumps(normalized, sort_keys=True, ensure_ascii=True)
     digest = hashlib.sha1(digest_input.encode("utf-8")).hexdigest()[:12]
-    return f"{preferred}_{digest}".replace("/", "_").replace(":", "_")[:60]
+    # Cap to fit Telegram's 64-byte callback_data limit. Longest prefix is
+    # "accountability:price_as_decided:yes:" (36 chars) → cache_key ≤ 28.
+    # Slice the preferred (visible) portion, but keep the full 12-char digest
+    # so collisions stay vanishingly unlikely.
+    preferred_clean = str(preferred).replace("/", "_").replace(":", "_")
+    prefix_budget = 28 - 1 - len(digest)  # underscore + digest
+    return f"{preferred_clean[:prefix_budget]}_{digest}"
 
 
 def cache_item(item: Mapping[str, Any], *, cache_dir: Path = DEFAULT_CACHE_DIR) -> str:

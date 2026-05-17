@@ -92,6 +92,53 @@ def build_description_actions_keyboard(cache_key: str, description: str) -> Inli
     ]])
 
 
+# ── Accountability keyboards ─────────────────────────────────────────────────
+
+def build_recommended_keyboard(cache_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🛒 Bought", callback_data=f"accountability:buy:{cache_key}"),
+            InlineKeyboardButton("🗑 Delete", callback_data=f"accountability:delete:{cache_key}"),
+        ]
+    ])
+
+
+def build_bought_keyboard(cache_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏷 Sell Item", callback_data=f"accountability:sell:{cache_key}")]
+    ])
+
+
+def build_drafting_keyboard(cache_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📝 Generate Description", callback_data=f"accountability:desc:{cache_key}"),
+        ],
+        [
+            InlineKeyboardButton("🖼 Improve Images", callback_data=f"accountability:improve:{cache_key}"),
+        ],
+        [
+            InlineKeyboardButton("👕 In the Wardrobe", callback_data=f"accountability:wardrobe:{cache_key}"),
+        ],
+    ])
+
+
+def build_selling_keyboard(cache_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💰 Sold", callback_data=f"accountability:sold:{cache_key}")]
+    ])
+
+
+def build_yes_no_keyboard(cache_key: str, prefix: str) -> InlineKeyboardMarkup:
+    """Generic Yes/No keyboard for confirmation steps."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes", callback_data=f"accountability:{prefix}:yes:{cache_key}"),
+            InlineKeyboardButton("❌ No", callback_data=f"accountability:{prefix}:no:{cache_key}"),
+        ]
+    ])
+
+
 def build_description_message(item: Mapping[str, object], payload: Mapping[str, object]) -> str:
     """Plain-text, copy-paste-ready message: long-press → Copy text gives the full listing."""
     title = str(item.get("Title") or "").strip()
@@ -119,10 +166,6 @@ def build_description_message(item: Mapping[str, object], payload: Mapping[str, 
     if description:
         lines.append("")
         lines.append(description)
-
-    # small footer so you know it's AI-generated — not part of the copyable listing
-    model_name = str(payload.get("model_name") or "heuristic")
-    lines.append(f"\n— {model_name}")
 
     return "\n".join(lines)
 

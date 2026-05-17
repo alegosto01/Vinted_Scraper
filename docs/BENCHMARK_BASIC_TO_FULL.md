@@ -25,7 +25,13 @@ The default model source is:
 data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/
 ```
 
-The default first-stage student source is:
+The default first-stage student source is now the precision-trained run:
+
+```text
+data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_score_precision_20260516_222723/
+```
+
+The previous recall-trained student is preserved for comparison at:
 
 ```text
 data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_score_20260515_154011/
@@ -33,7 +39,7 @@ data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_sc
 
 The cascade uses:
 
-- Stage 1: best teacher-student basic model per search, trained to imitate the full+visual teacher score.
+- Stage 1: best teacher-student basic model per search, trained to imitate the full+visual teacher score. Threshold is chosen on validation for **teacher precision** (P(teacher pass | student pass) ≥ target), not recall.
 - Stage 2: best `full_scrape_plus_visual` model per search.
 
 The old `basic_5` models can still be used for comparison with:
@@ -42,18 +48,24 @@ The old `basic_5` models can still be used for comparison with:
 --stage1-source basic_5
 ```
 
-Current default stage plan uses the 95% teacher-recall target:
+The recall-trained student can be re-selected explicitly with:
+
+```bash
+--student-run student_fullvisual_score_20260515_154011 --student-objective recall --student-recall-target 0.95
+```
+
+Current default stage plan uses the 95% teacher-precision target:
 
 | Search | Stage 1 | Stage 1 Threshold | Stage 2 | Stage 2 Threshold |
 | --- | --- | ---: | --- | ---: |
-| `griffati_donna_all` | `ridge_numeric_student_v1` | `0.4097` | `numeric_tree_v1` | `0.9728` |
-| `griffati_uomo_all` | `ridge_numeric_student_v1` | `0.4991` | `numeric_tree_v1` | `0.9680` |
-| `gucci` | `extra_trees_basic_student_v1` | `0.2646` | `logistic_v1_baseline` | `0.9643` |
-| `nike` | `extra_trees_basic_student_v1` | `0.2219` | `numeric_tree_v1` | `0.9917` |
-| `prada` | `extra_trees_basic_student_v1` | `0.3130` | `linear_svm_calibrated_v1` | `0.9955` |
-| `ps4` | `extra_trees_basic_student_v1` | `0.2600` | `linear_svm_calibrated_v1` | `0.9542` |
+| `griffati_donna_all` | `extra_trees_basic_student_v1` | `0.9569` | `numeric_tree_v1` | `0.9728` |
+| `griffati_uomo_all` | `sgd_huber_basic_student_v1` | `0.5677` | `numeric_tree_v1` | `0.9680` |
+| `gucci` | `sgd_huber_basic_student_v1` | `0.8759` | `logistic_v1_baseline` | `0.9643` |
+| `nike` | `sgd_huber_basic_student_v1` | `0.3399` | `numeric_tree_v1` | `0.9917` |
+| `prada` | `sgd_huber_basic_student_v1` | `0.9561` | `linear_svm_calibrated_v1` | `0.9955` |
+| `ps4` | `extra_trees_basic_student_v1` | `0.9651` | `linear_svm_calibrated_v1` | `0.9542` |
 
-The old strict basic first stage had very low teacher recall, around 5% on average in offline tests. The new student first stage keeps about 94% of teacher-approved test items at the 95% target, but it sends more items into full collection. That is intentional: Stage 1 is now a recall filter, while Stage 2 remains the precision filter.
+Rationale for the switch: the recall-trained first stage kept ~94% of teacher-approved test items but sent many items into the expensive full-scrape stage that the teacher would later reject. Switching the first stage to a precision objective makes it a tight filter that only forwards items the full+visual teacher is very likely to also approve. `gucci`, `ps4`, and `prada` hit the 95% teacher-precision floor on validation cleanly. `griffati_uomo_all` and `nike` did not — no student threshold on those searches reached 95% teacher precision on validation, so the threshold selector fell back to the best-achievable precision row.
 
 ## Recheck Schedule
 
@@ -122,10 +134,16 @@ Run scheduled loop:
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --collect-every-hours 1
 ```
 
-The default `run-loop` now uses the teacher-student first stage. To test a lower or higher first-stage recall target, use:
+The default `run-loop` now uses the teacher-student first stage with a precision objective. To restart with the precision student explicitly, use:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --collect-every-hours 1 --student-recall-target 0.90
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --student-run student_fullvisual_score_precision_20260516_222723 --student-objective precision --student-precision-target 0.95 --collect-every-hours 1
+```
+
+To compare with the older recall-targeted first stage:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live_recall_smoke --student-run student_fullvisual_score_20260515_154011 --student-objective recall --student-recall-target 0.95 --collect-every-hours 1
 ```
 
 ## Notes

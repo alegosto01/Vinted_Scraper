@@ -885,7 +885,33 @@ def run_sweep(
         },
         "auto_paper_trading": False,
     }
-    write_manifest(out_dir / "manifest.json", command="model_sweep", extra=to_builtin(summary))
+    manifest_path = out_dir / "manifest.json"
+    write_manifest(manifest_path, command="model_sweep", extra=to_builtin(summary))
+
+    # ── Experiment tracker ──────────────────────────────────────────────────
+    try:
+        from experiments.tracking.db import init_db, log_run, log_metrics
+        init_db()
+        manifest = read_json(manifest_path, {})
+        git_info = manifest.get("git", {})
+        log_run({
+            "run_id": out_dir.name,
+            "family": "deal_finder",
+            "command": "model_sweep",
+            "status": "completed",
+            "created_at": manifest.get("created_at"),
+            "finished_at": manifest.get("created_at"),
+            "run_dir": str(out_dir),
+            "git_branch": git_info.get("branch"),
+            "git_head": git_info.get("head"),
+            "git_dirty": bool(git_info.get("status_short")),
+            "promotion_count": len(candidate_records),
+        })
+        log_metrics(out_dir.name, metrics_df)
+    except Exception as exc:
+        print(f"[tracking] warning: failed to log run: {exc}", flush=True)
+    # ─────────────────────────────────────────────────────────────────────────
+
     return summary
 
 

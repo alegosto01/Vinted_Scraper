@@ -13,19 +13,20 @@ ps4:
   tags: []
 
 
-# gucci:
-#   search: "Gucci"
-#   prezzoDa: "20"
-#   prezzoA: " "
-#   condition: "6-1"
-#   colore: " "
-#   brands: " "
-#   sort: "newest_first"
-#   category: " "
-#   folder: "gucci"
-#   enabled: true
-#   no_residential: true
-#   tags: []
+gucci:
+  search: "Gucci"
+  prezzoDa: "20"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: " "
+  folder: "gucci"
+  enabled: true
+  no_residential: true
+  cascade_only: true
+  tags: []
 
 nike:
   search: "Nike"
@@ -41,19 +42,20 @@ nike:
   no_residential: true
   tags: []
 
-# prada:
-#   search: "Prada"
-#   prezzoDa: "20"
-#   prezzoA: " "
-#   condition: "6-1"
-#   colore: " "
-#   brands: " "
-#   sort: "newest_first"
-#   category: " "
-#   folder: "prada"
-#   enabled: true
-#   no_residential: true
-#   tags: []
+prada:
+  search: "Prada"
+  prezzoDa: "20"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: " "
+  folder: "prada"
+  enabled: true
+  no_residential: true
+  cascade_only: true
+  tags: []
 
 # borse_griffate:
 #   search: " "

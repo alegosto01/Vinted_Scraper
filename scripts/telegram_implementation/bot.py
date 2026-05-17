@@ -8,7 +8,7 @@ import logging
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = SCRIPTS_DIR.parent
@@ -22,6 +22,11 @@ from telegram_implementation.description_service import generate_description_for
 from telegram_implementation.event_log import log_event
 from telegram_implementation.item_cache import load_cached_item, load_description_payload, save_description_payload
 from telegram_implementation.notify import build_description_actions_keyboard, build_description_message
+from telegram_implementation.accountability_handlers import (
+    handle_accountability_callback,
+    handle_accountability_photo,
+    handle_accountability_text,
+)
 
 LOGGER = logging.getLogger(__name__)
 CALLBACK_PREFIX = "generate_description:"
@@ -142,6 +147,38 @@ async def generate_description_callback(update: Update, context: ContextTypes.DE
     )
 
 
+async def handle_photo_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    user = update.effective_user
+    state = context.user_data.get("accountability_state")
+    LOGGER.info(
+        "📷 photo received chat_id=%s chat_type=%s user_id=%s state=%s",
+        getattr(chat, "id", None), getattr(chat, "type", None),
+        getattr(user, "id", None),
+        state.get("stage") if state else None,
+    )
+    if await handle_accountability_photo(update, context):
+        return
+    LOGGER.info("photo not consumed (no awaiting_photos state for this user)")
+
+
+async def handle_text_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    user = update.effective_user
+    state = context.user_data.get("accountability_state")
+    text_preview = (update.message.text or "")[:60] if update.message else ""
+    LOGGER.info(
+        "💬 text received chat_id=%s chat_type=%s user_id=%s state=%s text=%r",
+        getattr(chat, "id", None), getattr(chat, "type", None),
+        getattr(user, "id", None),
+        state.get("stage") if state else None,
+        text_preview,
+    )
+    if await handle_accountability_text(update, context):
+        return
+    LOGGER.info("text not consumed (no matching awaiting_* state)")
+
+
 async def log_application_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     LOGGER.exception("Telegram bot update failed", exc_info=context.error)
     log_event("bot_error", details={"error": str(context.error)})
@@ -157,6 +194,9 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("chatid", chatid_cmd))
     app.add_handler(CallbackQueryHandler(generate_description_callback, pattern=rf"^({CALLBACK_PREFIX}|{REGENERATE_PREFIX})"))
+    app.add_handler(CallbackQueryHandler(handle_accountability_callback, pattern=r"^accountability:"))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_wrapper))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_wrapper))
     app.add_error_handler(log_application_error)
     return app
 

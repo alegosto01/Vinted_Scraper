@@ -5,6 +5,7 @@ import argparse
 import __main__
 import copy
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -59,6 +60,10 @@ setattr(__main__, "RulePriceScorer", RulePriceScorer)
 DEFAULT_MODALITY_RUN = "sold_status_feature_modalities_20260515_full_visual"
 DEFAULT_STUDENT_RUN = "student_fullvisual_score_20260515_154011"
 DEFAULT_STUDENT_RECALL_TARGET = 0.95
+DEFAULT_STUDENT_OBJECTIVE = "recall"
+DEFAULT_STUDENT_PRECISION_TARGET = 0.95
+DEFAULT_STUDENT_BINARY_TARGET = 10
+STUDENT_OBJECTIVES = ("recall", "precision", "binary")
 STATE_FILE = "tracked_items.csv"
 EVENTS_FILE = "events.jsonl"
 WINDOW_HOURS = [*range(1, 25), *range(27, 49, 3), *range(60, 169, 12)]
@@ -178,15 +183,24 @@ def teacher_student_run_dir(run_name: str) -> Path:
     return path
 
 
-def teacher_student_plan_table(run_name: str, target_recall: float) -> pd.DataFrame:
+def teacher_student_plan_table(
+    run_name: str,
+    *,
+    objective: str,
+    target_value: float,
+) -> pd.DataFrame:
+    if objective not in STUDENT_OBJECTIVES:
+        raise ValueError(f"Unknown student objective: {objective!r}")
     run_dir = teacher_student_run_dir(run_name)
     tradeoff_path = run_dir / "target_tradeoff_by_search.csv"
     best_path = run_dir / "best_student_by_search.csv"
+    column = "target_teacher_recall" if objective == "recall" else "target_teacher_precision"
     if tradeoff_path.exists():
         table = pd.read_csv(tradeoff_path)
-        matches = table[np.isclose(pd.to_numeric(table["target_teacher_recall"], errors="coerce"), float(target_recall))]
-        if not matches.empty:
-            return matches.copy()
+        if column in table.columns:
+            matches = table[np.isclose(pd.to_numeric(table[column], errors="coerce"), float(target_value))]
+            if not matches.empty:
+                return matches.copy()
     if best_path.exists():
         table = pd.read_csv(best_path)
         return table.copy()
@@ -218,10 +232,21 @@ def resolve_cascade_plan(
     run_name: str,
     stage1_source: str = "teacher_student",
     student_run: str = DEFAULT_STUDENT_RUN,
+    student_objective: str = DEFAULT_STUDENT_OBJECTIVE,
     student_recall_target: float = DEFAULT_STUDENT_RECALL_TARGET,
+    student_precision_target: float = DEFAULT_STUDENT_PRECISION_TARGET,
+    student_binary_target: int = DEFAULT_STUDENT_BINARY_TARGET,
     searches: list[str] | None = None,
     include_excluded: bool = False,
 ) -> list[dict[str, Any]]:
+    if student_objective not in STUDENT_OBJECTIVES:
+        raise ValueError(f"Unknown student objective: {student_objective!r}")
+    if student_objective == "recall":
+        student_target = float(student_recall_target)
+    elif student_objective == "precision":
+        student_target = float(student_precision_target)
+    else:
+        student_target = float(student_binary_target)
     best = best_mode_table(run_name)
     if not include_excluded:
         best = best.loc[~best["search_name"].astype(str).isin(DEFAULT_EXCLUDED_SEARCHES)].copy()
@@ -230,7 +255,7 @@ def resolve_cascade_plan(
         best = best.loc[best["search_name"].astype(str).str.lower().isin(wanted)].copy()
     student_plan = pd.DataFrame()
     if stage1_source == "teacher_student":
-        student_plan = teacher_student_plan_table(student_run, student_recall_target)
+        student_plan = teacher_student_plan_table(student_run, objective=student_objective, target_value=student_target)
         if not include_excluded:
             student_plan = student_plan.loc[~student_plan["search_name"].astype(str).isin(DEFAULT_EXCLUDED_SEARCHES)].copy()
         if searches:
@@ -284,7 +309,10 @@ def resolve_cascade_plan(
                 "stage1_threshold": stage1_threshold,
                 "stage1_metadata": stage1_metadata,
                 "student_run": student_run if stage1_source == "teacher_student" else "",
-                "student_recall_target": float(student_recall_target) if stage1_source == "teacher_student" else np.nan,
+                "student_objective": student_objective if stage1_source == "teacher_student" else "",
+                "student_recall_target": float(student_recall_target) if (stage1_source == "teacher_student" and student_objective == "recall") else np.nan,
+                "student_precision_target": float(student_precision_target) if (stage1_source == "teacher_student" and student_objective == "precision") else np.nan,
+                "student_binary_target": int(student_binary_target) if (stage1_source == "teacher_student" and student_objective == "binary") else np.nan,
                 "stage2_approach": stage2_row.get("approach"),
                 "stage2_threshold": float(stage2_row.get("threshold")),
                 "stage2_metadata": metadata_index[stage2_key],
@@ -464,8 +492,23 @@ def score_stage2(full_visual_rows: pd.DataFrame, metadata: dict[str, Any], thres
     return out
 
 
+_VINTED_URL_ID_RE = re.compile(r"vinted\.[a-z.]+/items/(\d+)")
+
+
+def _normalize_item_id(item_id: object) -> str:
+    raw = str(item_id).strip()
+    if raw.endswith(".0"):
+        head = raw[:-2]
+        if head.isdigit():
+            raw = head
+    m = _VINTED_URL_ID_RE.search(raw)
+    if m:
+        return m.group(1)
+    return raw
+
+
 def tracking_key(search_name: object, item_id: object) -> str:
-    return f"{str(search_name).strip().lower()}::{str(item_id).strip()}"
+    return f"{str(search_name).strip().lower()}::{_normalize_item_id(item_id)}"
 
 
 def ensure_state(frame: pd.DataFrame) -> pd.DataFrame:
@@ -605,10 +648,15 @@ def run_collect_once(
     modality_run: str,
     stage1_source: str,
     student_run: str,
+    student_objective: str,
     student_recall_target: float,
+    student_precision_target: float,
+    student_binary_target: int,
     searches: list[str] | None,
     dry_run: bool,
     max_stage1_items_per_search: int | None,
+    max_stage1_items_total: int | None,
+    stage1_threshold_floor: float | None,
     max_full_items_per_search: int | None,
     image_timeout: float,
     quality_methods: str,
@@ -622,7 +670,10 @@ def run_collect_once(
         run_name=modality_run,
         stage1_source=stage1_source,
         student_run=student_run,
+        student_objective=student_objective,
         student_recall_target=student_recall_target,
+        student_precision_target=student_precision_target,
+        student_binary_target=student_binary_target,
         searches=searches,
     )
     plan_path = out_dir / "cascade_plan.csv"
@@ -634,7 +685,10 @@ def run_collect_once(
                 "Stage1Model": row["stage1_approach"],
                 "Stage1Threshold": row["stage1_threshold"],
                 "StudentRun": row.get("student_run", ""),
+                "StudentObjective": row.get("student_objective", ""),
                 "StudentRecallTarget": row.get("student_recall_target", np.nan),
+                "StudentPrecisionTarget": row.get("student_precision_target", np.nan),
+                "StudentBinaryTarget": row.get("student_binary_target", np.nan),
                 "Stage2Model": row["stage2_approach"],
                 "Stage2Threshold": row["stage2_threshold"],
             }
@@ -646,7 +700,10 @@ def run_collect_once(
         "modality_run": modality_run,
         "stage1_source": stage1_source,
         "student_run": student_run if stage1_source == "teacher_student" else "",
-        "student_recall_target": float(student_recall_target) if stage1_source == "teacher_student" else None,
+        "student_objective": student_objective if stage1_source == "teacher_student" else "",
+        "student_recall_target": float(student_recall_target) if (stage1_source == "teacher_student" and student_objective == "recall") else None,
+        "student_precision_target": float(student_precision_target) if (stage1_source == "teacher_student" and student_objective == "precision") else None,
+        "student_binary_target": int(student_binary_target) if (stage1_source == "teacher_student" and student_objective == "binary") else None,
         "searches": [row["search_name"] for row in plan_rows],
         "dry_run": bool(dry_run),
         "recheck_schedule": "1h until 24h, 3h until 48h, 12h until 7d",
@@ -662,6 +719,9 @@ def run_collect_once(
     safe_ts = safe_timestamp_for_path(observed_at)
     tracked = read_csv_or_empty(out_dir / STATE_FILE)
     summary_rows: list[dict[str, Any]] = []
+
+    # Phase 1: collect and score all searches
+    search_batches: list[dict[str, Any]] = []
     for plan in plan_rows:
         search = plan["search_name"]
         search_config = config_by_search.get(search)
@@ -675,16 +735,67 @@ def run_collect_once(
         if raw.empty:
             summary_rows.append({"SearchName": search, "status": "empty_snapshot", "raw_rows": 0})
             continue
-        stage1 = score_stage1(raw, plan["stage1_metadata"], plan["stage1_threshold"])
+
+        effective_threshold = float(plan["stage1_threshold"])
+        if stage1_threshold_floor is not None:
+            effective_threshold = max(effective_threshold, float(stage1_threshold_floor))
+
+        stage1 = score_stage1(raw, plan["stage1_metadata"], effective_threshold)
         stage1_path = out_dir / "stage1_scores" / f"{search}_{safe_ts}.csv"
         stage1.to_csv(stage1_path, index=False)
-        selected = stage1[stage1["Stage1Passed"]].copy()
-        selected = selected.sort_values("Stage1Score", ascending=False, kind="stable")
+
+        passing = stage1[stage1["Stage1Passed"]].copy()
+        passing = passing.sort_values("Stage1Score", ascending=False, kind="stable")
         if max_stage1_items_per_search is not None and max_stage1_items_per_search > 0:
-            selected = selected.head(max_stage1_items_per_search).copy()
-        to_full = selected
+            passing = passing.head(max_stage1_items_per_search).copy()
+
+        search_batches.append({
+            "search": search,
+            "search_config": search_config,
+            "raw": raw,
+            "stage1": stage1,
+            "passing": passing,
+            "plan": plan,
+        })
+
+    # Phase 2: global selection across all searches, ranked by margin above threshold
+    all_passing_list = [b["passing"] for b in search_batches if not b["passing"].empty]
+    if all_passing_list:
+        all_passing = pd.concat(all_passing_list, ignore_index=True)
+        all_passing["Stage1Margin"] = all_passing["Stage1Score"] - all_passing["Stage1Threshold"]
+        all_passing = all_passing.sort_values("Stage1Margin", ascending=False, kind="stable")
+        if max_stage1_items_total is not None and max_stage1_items_total > 0:
+            selected_global = all_passing.head(max_stage1_items_total).copy()
+        else:
+            selected_global = all_passing.copy()
+    else:
+        selected_global = pd.DataFrame()
+
+    # Track all threshold-passing items (preserve existing Stage2Status)
+    for batch in search_batches:
+        passing_updates = batch["passing"].copy()
+        if not passing_updates.empty:
+            # Drop Stage2Status so we don't overwrite existing tracked status for non-selected items
+            passing_updates = passing_updates.drop(columns=[c for c in ["Stage2Status"] if c in passing_updates.columns], errors="ignore")
+            tracked = merge_tracked(tracked, passing_updates, observed_at=observed_at)
+
+    # Track selected items as pending full scrape
+    if not selected_global.empty:
+        selected_updates = selected_global.copy()
+        selected_updates["Stage2Status"] = "not_full_scraped"
+        tracked = merge_tracked(tracked, selected_updates, observed_at=observed_at)
+
+    # Phase 3: full scrape, visual features, stage2 scoring per search
+    for batch in search_batches:
+        search = batch["search"]
+        search_config = batch["search_config"]
+        plan = batch["plan"]
+        selected_for_search = selected_global[selected_global["SearchName"] == search].copy() if not selected_global.empty else pd.DataFrame()
+
+        to_full = selected_for_search
         if max_full_items_per_search is not None and max_full_items_per_search > 0:
-            to_full = selected.head(max_full_items_per_search).copy()
+            to_full = selected_for_search.head(max_full_items_per_search).copy()
+
         successes, failures = collect_full_payloads(
             to_full,
             search_name=search,
@@ -709,11 +820,10 @@ def run_collect_once(
             visual_stats = {}
             stage2 = pd.DataFrame()
             visual_path = out_dir / "visual_features" / f"{search}_{safe_ts}.csv"
-            stage2 = pd.DataFrame()
         stage2_path = out_dir / "stage2_scores" / f"{search}_{safe_ts}.csv"
         stage2.to_csv(stage2_path, index=False)
 
-        selected_updates = selected.copy()
+        selected_updates = selected_for_search.copy()
         selected_updates["Stage2Status"] = "not_full_scraped"
         if not failures.empty:
             failures = add_identity(failures)
@@ -741,8 +851,8 @@ def run_collect_once(
             {
                 "SearchName": search,
                 "status": "ok",
-                "raw_rows": int(len(raw)),
-                "stage1_pass_rows": int(len(selected)),
+                "raw_rows": int(len(batch["raw"])),
+                "stage1_pass_rows": int(len(batch["passing"])),
                 "full_requested": int(len(to_full)),
                 "full_success": int(len(successes)),
                 "full_failures": int(len(failures)),
@@ -938,10 +1048,15 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--modality-run", default=DEFAULT_MODALITY_RUN)
     collect.add_argument("--stage1-source", choices=["teacher_student", "basic_5"], default="teacher_student")
     collect.add_argument("--student-run", default=DEFAULT_STUDENT_RUN)
+    collect.add_argument("--student-objective", choices=list(STUDENT_OBJECTIVES), default=DEFAULT_STUDENT_OBJECTIVE)
     collect.add_argument("--student-recall-target", type=float, default=DEFAULT_STUDENT_RECALL_TARGET)
+    collect.add_argument("--student-precision-target", type=float, default=DEFAULT_STUDENT_PRECISION_TARGET)
+    collect.add_argument("--student-binary-target", type=int, default=DEFAULT_STUDENT_BINARY_TARGET)
     collect.add_argument("--search", action="append", default=[])
     collect.add_argument("--dry-run", action="store_true")
     collect.add_argument("--max-stage1-items-per-search", type=int, default=None)
+    collect.add_argument("--max-stage1-items-total", type=int, default=None)
+    collect.add_argument("--stage1-threshold-floor", type=float, default=None)
     collect.add_argument("--max-full-items-per-search", type=int, default=None)
     collect.add_argument("--image-timeout", type=float, default=8.0)
     collect.add_argument("--quality-methods", default="simple,pyiqa,aesthetic,dino")
@@ -960,11 +1075,16 @@ def parse_args() -> argparse.Namespace:
     loop.add_argument("--modality-run", default=DEFAULT_MODALITY_RUN)
     loop.add_argument("--stage1-source", choices=["teacher_student", "basic_5"], default="teacher_student")
     loop.add_argument("--student-run", default=DEFAULT_STUDENT_RUN)
+    loop.add_argument("--student-objective", choices=list(STUDENT_OBJECTIVES), default=DEFAULT_STUDENT_OBJECTIVE)
     loop.add_argument("--student-recall-target", type=float, default=DEFAULT_STUDENT_RECALL_TARGET)
+    loop.add_argument("--student-precision-target", type=float, default=DEFAULT_STUDENT_PRECISION_TARGET)
+    loop.add_argument("--student-binary-target", type=int, default=DEFAULT_STUDENT_BINARY_TARGET)
     loop.add_argument("--search", action="append", default=[])
     loop.add_argument("--collect-every-hours", type=float, default=1.0)
     loop.add_argument("--sleep-seconds", type=float, default=60.0)
     loop.add_argument("--max-stage1-items-per-search", type=int, default=None)
+    loop.add_argument("--max-stage1-items-total", type=int, default=None)
+    loop.add_argument("--stage1-threshold-floor", type=float, default=None)
     loop.add_argument("--max-full-items-per-search", type=int, default=None)
     loop.add_argument("--image-timeout", type=float, default=8.0)
     loop.add_argument("--quality-methods", default="simple,pyiqa,aesthetic,dino")
@@ -991,10 +1111,15 @@ def main() -> int:
             modality_run=args.modality_run,
             stage1_source=args.stage1_source,
             student_run=args.student_run,
+            student_objective=args.student_objective,
             student_recall_target=args.student_recall_target,
+            student_precision_target=args.student_precision_target,
+            student_binary_target=args.student_binary_target,
             searches=args.search or None,
             dry_run=bool(args.dry_run),
             max_stage1_items_per_search=args.max_stage1_items_per_search,
+            max_stage1_items_total=args.max_stage1_items_total,
+            stage1_threshold_floor=args.stage1_threshold_floor,
             max_full_items_per_search=args.max_full_items_per_search,
             image_timeout=args.image_timeout,
             quality_methods=args.quality_methods,
@@ -1022,10 +1147,15 @@ def main() -> int:
                     modality_run=args.modality_run,
                     stage1_source=args.stage1_source,
                     student_run=args.student_run,
+                    student_objective=args.student_objective,
                     student_recall_target=args.student_recall_target,
+                    student_precision_target=args.student_precision_target,
+                    student_binary_target=args.student_binary_target,
                     searches=args.search or None,
                     dry_run=False,
                     max_stage1_items_per_search=args.max_stage1_items_per_search,
+                    max_stage1_items_total=args.max_stage1_items_total,
+                    stage1_threshold_floor=args.stage1_threshold_floor,
                     max_full_items_per_search=args.max_full_items_per_search,
                     image_timeout=args.image_timeout,
                     quality_methods=args.quality_methods,

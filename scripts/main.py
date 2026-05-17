@@ -14,7 +14,7 @@ def main() -> int:
     settings.ensure_runtime_dirs()
 
     searches = load_searches(str(settings.paths.searches_yaml))
-    programmed_searches = [search for search in searches.values() if search.enabled]
+    programmed_searches = [search for search in searches.values() if search.enabled and not search.cascade_only]
 
     from scraping_options import preflight_parallel_scrape
 

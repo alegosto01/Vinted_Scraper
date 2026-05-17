@@ -65,6 +65,7 @@ _WATCHED: dict[str, Path] = {
 
 # ── Known-OK noise: skip Gemini entirely ──────────────────────────────────────
 _NOISE = re.compile(
+    # External-service transient failures (proxy / DNS / network) — self-resolving
     r"502 Zone has reached usage limit"
     r"|Skipping empty catalog response"
     r"|Datacenter fetch (?:error|failed)"
@@ -74,15 +75,41 @@ _NOISE = re.compile(
     r"|Temporary failure in name resolution"
     r"|NewConnectionError"
     r"|Failed to establish a new connection"
+    # Standard log levels and HTTP traffic
     r"|\bINFO\b"
     r"|\bDEBUG\b"
-    r"|HTTP Request.*200 OK"
+    r"|HTTP Request.*(?:200 OK|getUpdates)"
     r"|Application (?:start|stop)"
     r"|Bot starting"
     r"|getUpdates"
-    r"|Pandas4Warning"
-    r"|DeprecationWarning",
-    re.IGNORECASE,
+    # Python / pandas warnings (multi-line blocks)
+    r"|\bDeprecationWarning\b"
+    r"|\bUserWarning\b"
+    r"|\bDtypeWarning\b"
+    r"|\bFutureWarning\b"
+    r"|\bRuntimeWarning\b"
+    r"|\bPerformanceWarning\b"
+    r"|\bSettingWithCopyWarning\b"
+    r"|\.py:\d+:\s+\w*Warning"            # header line of a warning block, e.g. `foo.py:123: UserWarning: ...`
+    r"|^\s+\w+\s*=\s*pd\."                  # continuation line of a warning block, e.g. `  last_old_date = pd.to_datetime(...)`
+    # Routine scraper / scheduler info lines (no level prefix)
+    r"|Completed scheduler iteration"
+    r"|Scheduler (?:summary|iteration)"
+    r"|Updated schedule for search="
+    r"|No deal-finder model configured"
+    r"|Deal-finder scoring search="
+    r"|Finished (?:initial scrape|post-processing)"
+    r"|Appending \d+ new items"
+    r"|No searches due right now"
+    r"|Search=.* time difference"
+    # Routine eventual-sale background traffic
+    r"|Background eventual-sale (?:check|result)"
+    r"|Checking \d+ items? if they are sold"
+    r"|Checking if item .* is sold"
+    r"|Checked item .*: status="
+    # Expected Italian listing text the prior prompt called out
+    r"|Nessuna recensione",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # ── Per-log context buffer and dedup state ────────────────────────────────────
@@ -126,16 +153,23 @@ async def _classify(log_name: str, line: str, ctx: list[str]) -> tuple[bool, str
     context_text = "".join(ctx[-25:])
     prompt = (
         "You monitor a Vinted reselling automation system running on Linux.\n"
+        "A noise regex has already filtered out routine INFO/DEBUG logs, pandas warnings, "
+        "scheduler status lines, eventual-sale background checks, and known transient external "
+        "errors (proxy 502, DNS failures). Any line you see has already passed that first filter, "
+        "so lean toward classifying as a bug when the evidence is plausible.\n\n"
         f"Log source: [{log_name}]\n\n"
         f"Recent context:\n{context_text}\n"
         f"Suspicious new line:\n{line}\n\n"
-        "Known expected/harmless patterns (NOT bugs):\n"
-        "- Proxy 502 / quota errors (external service, self-resolving)\n"
-        "- 'Datacenter fetch error/failed' + 'Skipping empty catalog response'\n"
-        "- Standard INFO/DEBUG lines\n"
-        "- Pandas / Python DeprecationWarnings\n"
-        "- 'Nessuna recensione' (Italian for 'no reviews' — expected website text)\n\n"
-        "Is this a real bug, crash, or data integrity issue needing developer attention?\n"
+        "Classify as a BUG (is_bug=true) when the line shows any of:\n"
+        "- A Python traceback (`Traceback (most recent call last)`) or any exception name "
+        "(KeyError, ValueError, AttributeError, TypeError, RuntimeError, ConnectionError, etc.)\n"
+        "- An ERROR-level log line that references a crash, aborted processing, or unhandled state\n"
+        "- A data integrity issue (missing column, schema mismatch, wrong row count, NaN where required)\n"
+        "- A scraper or pipeline step that explicitly reports failure beyond a single retry\n\n"
+        "Classify as NOT a bug (is_bug=false) only when the line is clearly:\n"
+        "- A transient external API or network blip the regex didn't catch\n"
+        "- An informational status line that snuck through the noise filter\n"
+        "- A test or simulation marker the operator deliberately injected\n\n"
         'Reply ONLY with JSON: {"is_bug": bool, "severity": "low|medium|high", "reason": "one sentence"}'
     )
     url = (
@@ -144,7 +178,7 @@ async def _classify(log_name: str, line: str, ctx: list[str]) -> tuple[bool, str
     )
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 150},
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 96},
     }
     try:
         async with httpx.AsyncClient(timeout=20) as client:
