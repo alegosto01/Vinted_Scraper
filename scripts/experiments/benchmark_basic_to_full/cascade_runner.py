@@ -57,10 +57,10 @@ from experiments.photo_arbitrage.quality_methods import (
 setattr(__main__, "RulePriceScorer", RulePriceScorer)
 
 
-DEFAULT_MODALITY_RUN = "sold_status_feature_modalities_20260515_full_visual"
-DEFAULT_STUDENT_RUN = "student_fullvisual_score_20260515_154011"
+DEFAULT_MODALITY_RUN = "sold_status_feature_modalities_20260518_082505"
+DEFAULT_STUDENT_RUN = "student_binary_topk_20260518_085123"
 DEFAULT_STUDENT_RECALL_TARGET = 0.95
-DEFAULT_STUDENT_OBJECTIVE = "recall"
+DEFAULT_STUDENT_OBJECTIVE = "binary"
 DEFAULT_STUDENT_PRECISION_TARGET = 0.95
 DEFAULT_STUDENT_BINARY_TARGET = 10
 STUDENT_OBJECTIVES = ("recall", "precision", "binary")
@@ -329,8 +329,6 @@ def normalized_search_config(search_config: object) -> object:
             setattr(config, attr, " ")
     if not getattr(config, "sort", None):
         setattr(config, "sort", "newest_first")
-    if not hasattr(config, "no_residential"):
-        setattr(config, "no_residential", True)
     return config
 
 
@@ -343,7 +341,7 @@ def collect_search_snapshot(search_name: str, search_config: object) -> pd.DataF
     from simple_scraper import Simple_scraper
 
     scraper = Simple_scraper()
-    search_count = int(pd.Timestamp.now(tz="UTC").timestamp())
+    search_count = 1
     rows = scraper.scrape_products_serial(search_config, search_count, pages_to_scrape=1, get_images=False)
     candidates = add_identity(pd.DataFrame(rows))
     if candidates.empty:
@@ -459,7 +457,7 @@ def add_live_visual_features(
     return scored, stats
 
 
-def collect_full_payloads(rows: pd.DataFrame, *, search_name: str, no_residential: bool, image_mode: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def collect_full_payloads(rows: pd.DataFrame, *, search_name: str, image_mode: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     ensure_project_imports()
     from full_scraper import Full_Scraper
 
@@ -471,7 +469,6 @@ def collect_full_payloads(rows: pd.DataFrame, *, search_name: str, no_residentia
             row.to_dict(),
             search_name=search_name,
             reason="stage1_pass",
-            no_residential=no_residential,
             image_mode=image_mode,
         )
         if success is not None:
@@ -657,6 +654,9 @@ def run_collect_once(
     max_stage1_items_per_search: int | None,
     max_stage1_items_total: int | None,
     stage1_threshold_floor: float | None,
+    stage1_threshold_offset: float | None,
+    stage1_top_k_per_search: int | None,
+    stage2_threshold_offset: float,
     max_full_items_per_search: int | None,
     image_timeout: float,
     quality_methods: str,
@@ -737,6 +737,8 @@ def run_collect_once(
             continue
 
         effective_threshold = float(plan["stage1_threshold"])
+        if stage1_threshold_offset is not None and stage1_threshold_offset > 0:
+            effective_threshold = effective_threshold - float(stage1_threshold_offset)
         if stage1_threshold_floor is not None:
             effective_threshold = max(effective_threshold, float(stage1_threshold_floor))
 
@@ -744,10 +746,15 @@ def run_collect_once(
         stage1_path = out_dir / "stage1_scores" / f"{search}_{safe_ts}.csv"
         stage1.to_csv(stage1_path, index=False)
 
-        passing = stage1[stage1["Stage1Passed"]].copy()
-        passing = passing.sort_values("Stage1Score", ascending=False, kind="stable")
-        if max_stage1_items_per_search is not None and max_stage1_items_per_search > 0:
-            passing = passing.head(max_stage1_items_per_search).copy()
+        if stage1_top_k_per_search is not None and stage1_top_k_per_search > 0:
+            # Bypass threshold, take top K by score
+            passing = stage1.sort_values("Stage1Score", ascending=False, kind="stable").head(stage1_top_k_per_search).copy()
+            passing["Stage1Passed"] = True
+        else:
+            passing = stage1[stage1["Stage1Passed"]].copy()
+            passing = passing.sort_values("Stage1Score", ascending=False, kind="stable")
+            if max_stage1_items_per_search is not None and max_stage1_items_per_search > 0:
+                passing = passing.head(max_stage1_items_per_search).copy()
 
         search_batches.append({
             "search": search,
@@ -799,7 +806,6 @@ def run_collect_once(
         successes, failures = collect_full_payloads(
             to_full,
             search_name=search,
-            no_residential=bool(getattr(search_config, "no_residential", True)),
             image_mode="html",
         )
         append_rows(out_dir / "full_items" / "items_enriched.csv", successes)
@@ -815,7 +821,8 @@ def run_collect_once(
             )
             visual_path = out_dir / "visual_features" / f"{search}_{safe_ts}.csv"
             visual.to_csv(visual_path, index=False)
-            stage2 = score_stage2(visual, plan["stage2_metadata"], plan["stage2_threshold"])
+            stage2_threshold = float(plan["stage2_threshold"]) - float(stage2_threshold_offset)
+            stage2 = score_stage2(visual, plan["stage2_metadata"], stage2_threshold)
         else:
             visual_stats = {}
             stage2 = pd.DataFrame()
@@ -905,10 +912,8 @@ def run_recheck_due(*, out_dir: Path, dry_run: bool, max_workers: int = 3) -> di
         due_unique,
         max_workers=max(1, int(max_workers)),
         delay=0.0,
-        allow_residential_fallback=False,
         fetch_sleep=0.0,
         fetch_max_attempts=1,
-        no_residential=True,
     )
     checked["rechecked_at"] = utc_now_iso()
     checked = add_identity(checked)
@@ -1057,9 +1062,12 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--max-stage1-items-per-search", type=int, default=None)
     collect.add_argument("--max-stage1-items-total", type=int, default=None)
     collect.add_argument("--stage1-threshold-floor", type=float, default=None)
+    collect.add_argument("--stage1-threshold-offset", type=float, default=0.05)
+    collect.add_argument("--stage1-top-k-per-search", type=int, default=None, help="If set, bypass threshold filtering and take the top K items per search by score.")
+    collect.add_argument("--stage2-threshold-offset", type=float, default=0.0, help="Subtract this value from the stage-2 teacher threshold.")
     collect.add_argument("--max-full-items-per-search", type=int, default=None)
     collect.add_argument("--image-timeout", type=float, default=8.0)
-    collect.add_argument("--quality-methods", default="simple,pyiqa,aesthetic,dino")
+    collect.add_argument("--quality-methods", default="simple,aesthetic,dino")
     collect.add_argument("--quality-device", default="auto")
 
     recheck = sub.add_parser("recheck-due")
@@ -1085,9 +1093,12 @@ def parse_args() -> argparse.Namespace:
     loop.add_argument("--max-stage1-items-per-search", type=int, default=None)
     loop.add_argument("--max-stage1-items-total", type=int, default=None)
     loop.add_argument("--stage1-threshold-floor", type=float, default=None)
+    loop.add_argument("--stage1-threshold-offset", type=float, default=0.05)
+    loop.add_argument("--stage1-top-k-per-search", type=int, default=None, help="If set, bypass threshold filtering and take the top K items per search by score.")
+    loop.add_argument("--stage2-threshold-offset", type=float, default=0.0, help="Subtract this value from the stage-2 teacher threshold.")
     loop.add_argument("--max-full-items-per-search", type=int, default=None)
     loop.add_argument("--image-timeout", type=float, default=8.0)
-    loop.add_argument("--quality-methods", default="simple,pyiqa,aesthetic,dino")
+    loop.add_argument("--quality-methods", default="simple,aesthetic,dino")
     loop.add_argument("--quality-device", default="auto")
     return parser.parse_args()
 
@@ -1120,6 +1131,9 @@ def main() -> int:
             max_stage1_items_per_search=args.max_stage1_items_per_search,
             max_stage1_items_total=args.max_stage1_items_total,
             stage1_threshold_floor=args.stage1_threshold_floor,
+            stage1_threshold_offset=args.stage1_threshold_offset,
+            stage1_top_k_per_search=args.stage1_top_k_per_search,
+            stage2_threshold_offset=args.stage2_threshold_offset,
             max_full_items_per_search=args.max_full_items_per_search,
             image_timeout=args.image_timeout,
             quality_methods=args.quality_methods,
@@ -1156,6 +1170,9 @@ def main() -> int:
                     max_stage1_items_per_search=args.max_stage1_items_per_search,
                     max_stage1_items_total=args.max_stage1_items_total,
                     stage1_threshold_floor=args.stage1_threshold_floor,
+                    stage1_threshold_offset=args.stage1_threshold_offset,
+                    stage1_top_k_per_search=args.stage1_top_k_per_search,
+                    stage2_threshold_offset=args.stage2_threshold_offset,
                     max_full_items_per_search=args.max_full_items_per_search,
                     image_timeout=args.image_timeout,
                     quality_methods=args.quality_methods,

@@ -25,7 +25,6 @@ config_project_mod.settings = types.SimpleNamespace(
         web_unlocker_proxy='',
         api_token='',
         datacenter_proxy_url='http://dc-proxy.example:1234',
-        residential_proxy_url='http://proxy.example:1234',
     ),
     paths=types.SimpleNamespace(brand_ids_csv='data/brand_ids.csv'),
 )
@@ -97,93 +96,69 @@ import Scraper as scraper_module
 
 
 class ScraperFetchFallbackTests(unittest.TestCase):
-    def setUp(self):
-        Scraper._reset_fetch_mode_state_for_tests()
+    def test_missing_api_token_falls_back_to_datacenter(self):
+        scraper = Scraper()
+        sentinel = object()
 
-    def tearDown(self):
-        Scraper._reset_fetch_mode_state_for_tests()
+        with patch.object(scraper, '_get_api_token', return_value=None), \
+             patch.object(scraper, '_get_page_content_datacenter_html', return_value=sentinel) as datacenter_mock, \
+             patch.object(scraper, '_get_page_content_rendered') as rendered_mock:
+            result = scraper.get_page_content('https://example.com/item', sleep=0, max_attempts=1)
 
-    def test_rendered_failure_switches_to_residential_and_sets_cooldown(self):
+        self.assertIs(result, sentinel)
+        datacenter_mock.assert_called_once()
+        rendered_mock.assert_not_called()
+
+    def test_rendered_success_returns_html_without_datacenter_fallback(self):
+        scraper = Scraper()
+        sentinel = object()
+
+        with patch.object(scraper, '_get_api_token', return_value='token'), \
+             patch.object(scraper, '_get_page_content_rendered', return_value=(sentinel, 200, None)) as rendered_mock, \
+             patch.object(scraper, '_get_page_content_datacenter_html') as datacenter_mock:
+            result = scraper.get_page_content('https://example.com/item', sleep=0, max_attempts=1)
+
+        self.assertIs(result, sentinel)
+        rendered_mock.assert_called_once()
+        datacenter_mock.assert_not_called()
+
+    def test_rendered_403_falls_back_to_datacenter(self):
         scraper = Scraper()
         sentinel = object()
 
         with patch.object(scraper, '_get_api_token', return_value='token'), \
              patch.object(scraper, '_get_page_content_rendered', return_value=(None, 403, None)) as rendered_mock, \
-             patch.object(scraper, '_get_page_content_residential_html', return_value=sentinel) as residential_mock:
+             patch.object(scraper, '_get_page_content_datacenter_html', return_value=sentinel) as datacenter_mock:
             result = scraper.get_page_content('https://example.com/item', sleep=0, max_attempts=1)
 
         self.assertIs(result, sentinel)
         rendered_mock.assert_called_once()
-        residential_mock.assert_called_once()
-        self.assertGreater(Scraper._residential_cooldown_remaining(), 50.0)
+        datacenter_mock.assert_called_once()
 
-    def test_active_cooldown_uses_residential_first(self):
-        Scraper._activate_residential_cooldown('test', seconds=300)
+    def test_rendered_404_short_circuits_without_datacenter_fallback(self):
         scraper = Scraper()
-        sentinel = object()
-
-        with patch.object(scraper.logger, 'warning') as warning_mock, \
-             patch.object(scraper, '_get_api_token', return_value='token'), \
-             patch.object(scraper, '_get_page_content_residential_html', return_value=sentinel) as residential_mock, \
-             patch.object(scraper, '_get_page_content_rendered') as rendered_mock:
-            result = scraper.get_page_content('https://example.com/items/1234567890-example', sleep=0, max_attempts=1)
-
-        self.assertIs(result, sentinel)
-        residential_mock.assert_called_once()
-        rendered_mock.assert_not_called()
-        warning_mock.assert_any_call('RESIDENTIAL-MODE checking item %s', '1234567890')
-
-    def test_active_cooldown_falls_back_to_rendered_when_residential_fails(self):
-        Scraper._activate_residential_cooldown('test', seconds=300)
-        scraper = Scraper()
-        sentinel = object()
 
         with patch.object(scraper, '_get_api_token', return_value='token'), \
-             patch.object(scraper, '_get_page_content_residential_html', return_value=None) as residential_mock, \
-             patch.object(scraper, '_get_page_content_rendered', return_value=(sentinel, 200, None)) as rendered_mock:
+             patch.object(scraper, '_get_page_content_rendered', return_value=(None, 404, None)) as rendered_mock, \
+             patch.object(scraper, '_get_page_content_datacenter_html') as datacenter_mock:
             result = scraper.get_page_content('https://example.com/item', sleep=0, max_attempts=1)
 
-        self.assertIs(result, sentinel)
-        residential_mock.assert_called_once()
+        self.assertIsNone(result)
         rendered_mock.assert_called_once()
+        datacenter_mock.assert_not_called()
 
-    def test_rendered_only_mode_ignores_residential_cooldown(self):
-        Scraper._activate_residential_cooldown('test', seconds=300)
+    def test_rendered_request_error_falls_back_to_datacenter(self):
         scraper = Scraper()
         sentinel = object()
+        error = RuntimeError('boom')
 
         with patch.object(scraper, '_get_api_token', return_value='token'), \
-             patch.object(scraper, '_get_page_content_residential_html') as residential_mock, \
-             patch.object(scraper, '_get_page_content_rendered', return_value=(sentinel, 200, None)) as rendered_mock:
-            result = scraper.get_page_content(
-                'https://example.com/items/1234567890-example',
-                sleep=0,
-                max_attempts=1,
-                allow_residential_fallback=False,
-            )
-
-        self.assertIs(result, sentinel)
-        residential_mock.assert_not_called()
-        rendered_mock.assert_called_once()
-
-    def test_no_residential_mode_uses_datacenter_only(self):
-        scraper = Scraper()
-        sentinel = object()
-
-        with patch.object(scraper, '_get_page_content_datacenter_html', return_value=sentinel) as datacenter_mock, \
-             patch.object(scraper, '_get_page_content_residential_html') as residential_mock, \
-             patch.object(scraper, '_get_page_content_rendered') as rendered_mock:
-            result = scraper.get_page_content(
-                'https://example.com/items/1234567890-example',
-                sleep=0,
-                max_attempts=1,
-                no_residential=True,
-            )
+             patch.object(scraper, '_get_page_content_rendered', return_value=(None, None, error)), \
+             patch.object(scraper, '_get_page_content_datacenter_html', return_value=sentinel) as datacenter_mock:
+            result = scraper.get_page_content('https://example.com/item', sleep=0, max_attempts=1)
 
         self.assertIs(result, sentinel)
         datacenter_mock.assert_called_once()
-        residential_mock.assert_not_called()
-        rendered_mock.assert_not_called()
 
     def test_rendered_helper_stops_after_first_403(self):
         class FakeResponse:
@@ -222,32 +197,6 @@ class ScraperFetchFallbackTests(unittest.TestCase):
         self.assertIsNone(html)
         self.assertEqual(last_status, 403)
         self.assertIsNone(last_error)
-        self.assertEqual(fake_session.calls, 1)
-
-    def test_residential_fetch_stops_after_first_404(self):
-        class FakeResponse:
-            def __init__(self, status_code):
-                self.status_code = status_code
-                self.text = ''
-
-        class FakeSession:
-            def __init__(self):
-                self.calls = 0
-
-            def get(self, *args, **kwargs):
-                self.calls += 1
-                return FakeResponse(404)
-
-            def close(self):
-                return None
-
-        fake_session = FakeSession()
-        scraper = Scraper()
-
-        with patch.object(scraper, '_build_retry_session', return_value=fake_session):
-            html = scraper.get_page_content_residential('https://example.com/item', sleep=0, max_attempts=3)
-
-        self.assertIsNone(html)
         self.assertEqual(fake_session.calls, 1)
 
     def test_datacenter_fetch_waits_and_retries_after_403(self):

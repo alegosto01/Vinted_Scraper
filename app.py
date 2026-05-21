@@ -1,11 +1,13 @@
 """Vinted monitoring dashboard — live scraping, benchmark, eventual sales."""
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,9 @@ CASCADE_LOG = CASCADE_RUN / "nohup.log"
 CASCADE_LOOP_LOG = CASCADE_RUN / "cascade_loop.log"
 CASCADE_PID = CASCADE_RUN / "runner.pid"
 CASCADE_MANIFEST = CASCADE_RUN / "manifest.json"
+
+CASCADE_RESULTS_RUNS = ROOT / "data" / "experiments" / "benchmark_basic_to_full" / "live_runs"
+BASIC_VISUAL_RESULTS_RUNS = ROOT / "data" / "experiments" / "basic_plus_visual" / "live_runs"
 
 TELEGRAM_EVENTS = ROOT / "data" / "telegram_implementation" / "events.jsonl"
 TELEGRAM_CACHE = ROOT / "data" / "telegram_implementation" / "pending_items"
@@ -114,6 +119,425 @@ def read_json_safe(path: Path) -> dict | None:
         return None
 
 
+def list_live_runs(parent: Path, prefix: str | None = None) -> list[Path]:
+    if not parent.exists():
+        return []
+    runs = [
+        p for p in parent.iterdir()
+        if p.is_dir() and (prefix is None or p.name.startswith(prefix))
+    ]
+    return sorted(runs, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def install_browser_autorefresh(seconds: int) -> None:
+    components.html(
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {max(5, int(seconds)) * 1000});
+        </script>
+        """,
+        height=0,
+    )
+
+
+def normalize_item_id(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if re.fullmatch(r"\d+\.0", text):
+        return text[:-2]
+    return text
+
+
+def tracking_key(df: pd.DataFrame) -> pd.Series:
+    search = (
+        df["SearchName"].fillna("").astype(str)
+        if "SearchName" in df.columns
+        else pd.Series("", index=df.index)
+    )
+    if "tracking_key" in df.columns:
+        existing = df["tracking_key"].fillna("").astype(str).str.strip()
+        if existing.ne("").any():
+            return existing
+
+    id_col = next((c for c in ["item_id", "Dataid", "dataid", "ItemID", "ID"] if c in df.columns), None)
+    if id_col is not None:
+        ids = df[id_col].map(normalize_item_id)
+    elif "Link" in df.columns:
+        ids = df["Link"].fillna("").astype(str)
+    else:
+        ids = pd.Series(df.index.astype(str), index=df.index)
+    return search + "::" + ids
+
+
+def truthy_series(series: pd.Series | None, index: pd.Index) -> pd.Series:
+    if series is None:
+        return pd.Series(False, index=index)
+    return series.fillna("").astype(str).str.strip().str.lower().isin({"true", "1", "1.0", "yes", "y"})
+
+
+def sold_status_series(df: pd.DataFrame) -> pd.Series:
+    statuses = pd.Series(False, index=df.index)
+    for col in ["LastCheckStatus", "last_recheck_status", "MarketStatus", "status", "_status"]:
+        if col in df.columns:
+            status = df[col].fillna("").astype(str).str.strip().str.lower()
+            statuses = statuses | status.isin({"sold", "venduto", "vendu"})
+    return statuses
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_basic_visual_first_sold_checks(run_dir_text: str) -> pd.DataFrame:
+    reports_dir = Path(run_dir_text) / "reports"
+    sold_checks = []
+    recheck_cols = {
+        "SearchName", "Dataid", "item_id", "Link", "LastCheckStatus",
+        "MarketStatus", "_last_checked_at", "rechecked_at",
+    }
+    for path in sorted(reports_dir.glob("recheck_*.csv")):
+        try:
+            recheck = pd.read_csv(path, low_memory=False, usecols=lambda c: c in recheck_cols)
+        except (FileNotFoundError, pd.errors.EmptyDataError, ValueError):
+            continue
+        if recheck.empty:
+            continue
+
+        recheck["_tracking_key"] = tracking_key(recheck)
+        recheck["_checked_at"] = first_present_datetime(recheck, ["_last_checked_at", "rechecked_at"])
+        recheck = recheck[sold_status_series(recheck) & recheck["_checked_at"].notna()]
+        if not recheck.empty:
+            sold_checks.append(recheck[["_tracking_key", "_checked_at"]])
+
+    if not sold_checks:
+        return pd.DataFrame(columns=["_tracking_key", "_sold_at"])
+
+    return (
+        pd.concat(sold_checks, ignore_index=True)
+        .groupby("_tracking_key", as_index=False)["_checked_at"]
+        .min()
+        .rename(columns={"_checked_at": "_sold_at"})
+    )
+
+
+def to_utc(series: pd.Series | None, index: pd.Index) -> pd.Series:
+    if series is None:
+        return pd.Series(pd.NaT, index=index, dtype="datetime64[ns, UTC]")
+    return pd.to_datetime(series, utc=True, errors="coerce")
+
+
+def first_present_datetime(df: pd.DataFrame, columns: list[str]) -> pd.Series:
+    out = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
+    for col in columns:
+        if col in df.columns:
+            out = out.fillna(to_utc(df[col], df.index))
+    return out
+
+
+def precision_cell(sold: int, denominator: int) -> str:
+    if denominator <= 0:
+        return "0/0 (—)"
+    return f"{sold}/{denominator} ({100 * sold / denominator:.1f}%)"
+
+
+def threshold_value(df: pd.DataFrame, column: str) -> float | None:
+    if column not in df.columns:
+        return None
+    values = pd.to_numeric(df[column], errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.iloc[0])
+
+
+def precision_by_hour(
+    df: pd.DataFrame,
+    start_col: str,
+    sold_col: str,
+    now: pd.Timestamp,
+    hours: list[int],
+) -> pd.DataFrame:
+    rows = []
+    valid = df[df[start_col].notna()].copy()
+    elapsed_to_now = (now - valid[start_col]).dt.total_seconds() / 3600
+    sold_elapsed = (valid[sold_col] - valid[start_col]).dt.total_seconds() / 3600
+
+    for hour in hours:
+        matured = valid[elapsed_to_now >= hour]
+        sold = matured[matured[sold_col].notna() & (sold_elapsed.loc[matured.index] <= hour)]
+        denominator = len(matured)
+        rows.append({
+            "Hour": hour,
+            "Sold": int(len(sold)),
+            "Matured items": int(denominator),
+            "Precision": 0.0 if denominator == 0 else len(sold) / denominator,
+            "Sold / denominator": precision_cell(int(len(sold)), int(denominator)),
+        })
+    return pd.DataFrame(rows)
+
+
+def sold_hour_buckets(df: pd.DataFrame, start_col: str, sold_col: str) -> pd.DataFrame:
+    sold = df[df[sold_col].notna() & df[start_col].notna()].copy()
+    if sold.empty:
+        return pd.DataFrame(columns=["Search", "Sold hour buckets"])
+
+    elapsed = (sold[sold_col] - sold[start_col]).dt.total_seconds() / 3600
+    sold = sold[elapsed >= 0].copy()
+    sold["_bucket"] = elapsed.loc[sold.index].astype(int)
+    rows = []
+    for search, group in sold.groupby("SearchName", dropna=False):
+        counts = group["_bucket"].value_counts().sort_index()
+        bucket_text = ", ".join(f"{int(bucket)}-{int(bucket) + 1}h: {int(count)}" for bucket, count in counts.items())
+        rows.append({"Search": search, "Sold hour buckets": bucket_text})
+    return pd.DataFrame(rows).sort_values("Search").reset_index(drop=True)
+
+
+def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    tracked_path = run_dir / "tracked_items.csv"
+    if not tracked_path.exists():
+        raise FileNotFoundError(f"{tracked_path} not found")
+
+    usecols = lambda c: c in {
+        "tracking_key", "item_id", "Dataid", "SearchName", "Link", "first_stage1_pass_at",
+        "sold_at", "Stage1Threshold", "Stage2Threshold", "Stage2Score", "Stage2Passed",
+    }
+    df = pd.read_csv(tracked_path, low_memory=False, usecols=usecols)
+    if df.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty, {"tracked_rows": 0, "updated_at": None}
+
+    df["_tracking_key"] = tracking_key(df)
+    df["_stage2_passed"] = truthy_series(df.get("Stage2Passed"), df.index)
+    df["_stage2_score"] = pd.to_numeric(df.get("Stage2Score"), errors="coerce")
+    df["_first_at_raw"] = first_present_datetime(df, ["first_stage1_pass_at"])
+    df["_sold_at_raw"] = first_present_datetime(df, ["sold_at"])
+
+    first_at_by_key = df.groupby("_tracking_key")["_first_at_raw"].min()
+    sold_at_by_key = df.groupby("_tracking_key")["_sold_at_raw"].min()
+
+    unique = (
+        df.sort_values(["_tracking_key", "_stage2_passed", "_stage2_score"], ascending=[True, False, False])
+        .drop_duplicates("_tracking_key", keep="first")
+        .copy()
+    )
+    unique["_first_at"] = unique["_tracking_key"].map(first_at_by_key)
+    unique["_sold_at"] = unique["_tracking_key"].map(sold_at_by_key)
+
+    now = pd.Timestamp(_now_utc())
+    checkpoints = [1, 6, 12, 24, 30]
+    rows = []
+    for search, group in unique.groupby("SearchName", dropna=False):
+        passed = group[group["_stage2_passed"]]
+        rejected = group[~group["_stage2_passed"]]
+        row = {
+            "Search": search,
+            "S1 thr": threshold_value(group, "Stage1Threshold"),
+            "S2 thr": threshold_value(group, "Stage2Threshold"),
+            "S1 pass": int(len(group)),
+            "S2 pass": int(len(passed)),
+            "S2 sold": int(passed["_sold_at"].notna().sum()),
+            "Reject sold": int(rejected["_sold_at"].notna().sum()),
+        }
+
+        elapsed_to_now = (now - passed["_first_at"]).dt.total_seconds() / 3600
+        sold_elapsed = (passed["_sold_at"] - passed["_first_at"]).dt.total_seconds() / 3600
+        for hour in checkpoints:
+            matured = passed[passed["_first_at"].notna() & (elapsed_to_now >= hour)]
+            sold = matured[matured["_sold_at"].notna() & (sold_elapsed.loc[matured.index] <= hour)]
+            row[f"{hour}h"] = precision_cell(int(len(sold)), int(len(matured)))
+        rows.append(row)
+
+    summary = pd.DataFrame(rows).sort_values("Search").reset_index(drop=True)
+    stage2_passed = unique[unique["_stage2_passed"]].copy()
+    overall = precision_by_hour(stage2_passed, "_first_at", "_sold_at", now, [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36])
+    buckets = sold_hour_buckets(stage2_passed, "_first_at", "_sold_at")
+
+    meta = {
+        "tracked_rows": len(df),
+        "unique_stage1_pass": int(len(unique)),
+        "unique_stage2_pass": int(stage2_passed.shape[0]),
+        "sold_stage2_pass": int(stage2_passed["_sold_at"].notna().sum()),
+        "updated_at": datetime.fromtimestamp(tracked_path.stat().st_mtime, tz=timezone.utc),
+    }
+    return summary, overall, buckets, meta
+
+
+def load_basic_visual_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    scored_dir = run_dir / "scored_items"
+    tracked_path = run_dir / "tracked_items.csv"
+    if not scored_dir.exists():
+        raise FileNotFoundError(f"{scored_dir} not found")
+    if not tracked_path.exists():
+        raise FileNotFoundError(f"{tracked_path} not found")
+
+    score_cols = {"SearchName", "Dataid", "item_id", "Link", "snapshot_at", "SoldProba", "SoldPred", "SoldThreshold"}
+    score_frames = []
+    for path in sorted(scored_dir.glob("*.csv")):
+        chunk = pd.read_csv(path, low_memory=False, usecols=lambda c: c in score_cols)
+        if not chunk.empty:
+            score_frames.append(chunk)
+    if score_frames:
+        scored = pd.concat(score_frames, ignore_index=True)
+    else:
+        scored = pd.DataFrame(columns=list(score_cols))
+
+    if not scored.empty:
+        scored["_tracking_key"] = tracking_key(scored)
+        scored["_score"] = pd.to_numeric(scored.get("SoldProba"), errors="coerce")
+        scored["_threshold"] = pd.to_numeric(scored.get("SoldThreshold"), errors="coerce")
+        pred = truthy_series(scored.get("SoldPred"), scored.index)
+        scored["_passed"] = pred | (scored["_score"] >= scored["_threshold"])
+        scored["_snapshot_at"] = first_present_datetime(scored, ["snapshot_at"])
+        unique_scored = scored.sort_values(["_tracking_key", "_score"], ascending=[True, False]).drop_duplicates("_tracking_key")
+        pass_rows = scored[scored["_passed"]].copy()
+        first_pass_by_key = pass_rows.groupby("_tracking_key")["_snapshot_at"].min()
+        passed_keys = set(pass_rows["_tracking_key"])
+    else:
+        unique_scored = scored.copy()
+        first_pass_by_key = pd.Series(dtype="datetime64[ns, UTC]")
+        passed_keys = set()
+
+    track_cols = {
+        "SearchName", "Dataid", "item_id", "Link", "snapshot_at", "SoldProba", "SoldPred",
+        "SoldThreshold", "_tracked_at", "_last_checked_at", "LastCheckStatus", "MarketStatus", "sold_at",
+    }
+    tracked = pd.read_csv(tracked_path, low_memory=False, usecols=lambda c: c in track_cols)
+    if not tracked.empty:
+        tracked["_tracking_key"] = tracking_key(tracked)
+        tracked["_score"] = pd.to_numeric(tracked.get("SoldProba"), errors="coerce")
+        tracked["_threshold"] = pd.to_numeric(tracked.get("SoldThreshold"), errors="coerce")
+        tracked["_tracked_at_raw"] = first_present_datetime(tracked, ["_tracked_at", "snapshot_at"])
+        tracked["_checked_at_raw"] = first_present_datetime(tracked, ["_last_checked_at"])
+        tracked["_sold_at_raw"] = first_present_datetime(tracked, ["sold_at"])
+        tracked["_sold_now"] = sold_status_series(tracked) | tracked["_sold_at_raw"].notna()
+
+        first_tracked_by_key = tracked.groupby("_tracking_key")["_tracked_at_raw"].min()
+        last_checked_by_key = tracked.groupby("_tracking_key")["_checked_at_raw"].max()
+        current_sold_by_key = tracked[tracked["_sold_now"]].groupby("_tracking_key")["_checked_at_raw"].min()
+        history_sold = load_basic_visual_first_sold_checks(str(run_dir))
+        if history_sold.empty:
+            sold_at_by_key = current_sold_by_key
+        else:
+            history_sold_by_key = history_sold.set_index("_tracking_key")["_sold_at"]
+            sold_at_by_key = (
+                pd.concat([current_sold_by_key, history_sold_by_key])
+                .groupby(level=0)
+                .min()
+            )
+
+        tracked_unique = (
+            tracked.sort_values(["_tracking_key", "_checked_at_raw", "_score"], ascending=[True, False, False])
+            .drop_duplicates("_tracking_key", keep="first")
+            .copy()
+        )
+        tracked_unique["_start_at"] = tracked_unique["_tracking_key"].map(first_pass_by_key)
+        tracked_unique["_start_at"] = tracked_unique["_start_at"].fillna(tracked_unique["_tracking_key"].map(first_tracked_by_key))
+        tracked_unique["_last_checked_at"] = tracked_unique["_tracking_key"].map(last_checked_by_key)
+        tracked_unique["_sold_at"] = tracked_unique["_tracking_key"].map(sold_at_by_key)
+        tracked_unique["_sold_at"] = tracked_unique["_sold_at"].fillna(tracked_unique["_sold_at_raw"])
+    else:
+        tracked_unique = tracked.copy()
+        tracked_unique["_tracking_key"] = pd.Series(dtype=str)
+        tracked_unique["_start_at"] = pd.Series(dtype="datetime64[ns, UTC]")
+        tracked_unique["_sold_at"] = pd.Series(dtype="datetime64[ns, UTC]")
+
+    now = pd.Timestamp(_now_utc())
+    checkpoints = [1, 6, 12, 24]
+    rows = []
+    searches = sorted(set(unique_scored.get("SearchName", pd.Series(dtype=str)).dropna()) | set(tracked_unique.get("SearchName", pd.Series(dtype=str)).dropna()))
+    for search in searches:
+        scored_group = unique_scored[unique_scored["SearchName"] == search] if "SearchName" in unique_scored.columns else pd.DataFrame()
+        pass_count = int(scored_group["_tracking_key"].isin(passed_keys).sum()) if "_tracking_key" in scored_group.columns else 0
+        tracked_group = tracked_unique[tracked_unique["SearchName"] == search] if "SearchName" in tracked_unique.columns else pd.DataFrame()
+        row = {
+            "Search": search,
+            "Threshold": threshold_value(scored_group, "SoldThreshold"),
+            "Unique scored": int(len(scored_group)),
+            "Threshold pass": pass_count,
+            "Tracked": int(len(tracked_group)),
+            "Sold": int(tracked_group["_sold_at"].notna().sum()) if "_sold_at" in tracked_group.columns else 0,
+        }
+
+        elapsed_to_now = (now - tracked_group["_start_at"]).dt.total_seconds() / 3600 if not tracked_group.empty else pd.Series(dtype=float)
+        sold_elapsed = (tracked_group["_sold_at"] - tracked_group["_start_at"]).dt.total_seconds() / 3600 if not tracked_group.empty else pd.Series(dtype=float)
+        for hour in checkpoints:
+            matured = tracked_group[tracked_group["_start_at"].notna() & (elapsed_to_now >= hour)] if not tracked_group.empty else tracked_group
+            sold = matured[matured["_sold_at"].notna() & (sold_elapsed.loc[matured.index] <= hour)] if not matured.empty else matured
+            row[f"{hour}h"] = precision_cell(int(len(sold)), int(len(matured)))
+        rows.append(row)
+
+    summary = pd.DataFrame(rows).sort_values("Search").reset_index(drop=True)
+    overall = precision_by_hour(tracked_unique, "_start_at", "_sold_at", now, [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36])
+    buckets = sold_hour_buckets(tracked_unique, "_start_at", "_sold_at")
+
+    meta = {
+        "scored_rows": int(len(scored)),
+        "unique_scored": int(len(unique_scored)),
+        "unique_threshold_pass": int(len(passed_keys)),
+        "unique_tracked": int(len(tracked_unique)),
+        "tracked_sold": int(tracked_unique["_sold_at"].notna().sum()) if "_sold_at" in tracked_unique.columns else 0,
+        "updated_at": datetime.fromtimestamp(tracked_path.stat().st_mtime, tz=timezone.utc),
+    }
+    return summary, overall, buckets, meta
+
+
+def show_precision_table(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("No rows yet.")
+        return
+    st.dataframe(
+        df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Precision": st.column_config.NumberColumn("Precision", format="%.1%%"),
+        },
+    )
+
+
+def render_model_results_section(
+    title: str,
+    run_dir: Path,
+    loader,
+    metric_labels: list[tuple[str, str]],
+) -> None:
+    st.subheader(title)
+    st.caption(f"Run: `{run_dir.relative_to(ROOT)}`")
+    try:
+        summary, overall, buckets, meta = loader(run_dir)
+    except Exception as exc:
+        st.error(f"Could not compute {title}: {exc}")
+        return
+
+    updated = meta.get("updated_at")
+    if isinstance(updated, datetime):
+        st.caption(f"Latest tracked update: {updated.strftime('%Y-%m-%d %H:%M:%S')} UTC ({age_str(file_age(run_dir / 'tracked_items.csv'))})")
+
+    metric_cols = st.columns(len(metric_labels))
+    for col, (label, key) in zip(metric_cols, metric_labels):
+        col.metric(label, f"{meta.get(key, 0):,}")
+
+    st.markdown("**Per-search Table**")
+    st.dataframe(
+        summary,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "S1 thr": st.column_config.NumberColumn("S1 thr", format="%.6f"),
+            "S2 thr": st.column_config.NumberColumn("S2 thr", format="%.4f"),
+            "Threshold": st.column_config.NumberColumn("Threshold", format="%.6f"),
+        },
+    )
+
+    st.markdown("**Overall Matured Precision**")
+    show_precision_table(overall)
+
+    st.markdown("**Sold Hour Buckets**")
+    if buckets.empty:
+        st.info("No sold items detected yet.")
+    else:
+        st.dataframe(buckets, width="stretch", hide_index=True)
+
+
 # ── page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Vinted Monitor", layout="wide")
@@ -124,6 +548,11 @@ if st.sidebar.button("↻ Refresh", width="stretch"):
 
 st.sidebar.caption(f"Updated: {_now_utc().strftime('%H:%M:%S')} UTC")
 st.sidebar.divider()
+auto_refresh_results = st.sidebar.toggle("Auto-refresh page", value=True)
+refresh_seconds = st.sidebar.slider("Refresh interval (seconds)", 15, 300, 60, step=15)
+if auto_refresh_results:
+    install_browser_autorefresh(refresh_seconds)
+st.sidebar.divider()
 log_lines = st.sidebar.slider("Log lines to show", 20, 200, 60, step=10)
 show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 
@@ -132,9 +561,10 @@ show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 PHOTO_DATASET = ROOT / "data" / "experiments" / "photo_arbitrage" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
 PHOTO_LABELS = ROOT / "data" / "experiments" / "photo_arbitrage" / "labels" / "photo_quality_labels.csv"
 
-tab_scrape, tab_bench, tab_eventual, tab_telegram, tab_photo = st.tabs([
+tab_scrape, tab_bench, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
     "Live Scraping",
     "Benchmark (Cascade)",
+    "Model Results",
     "Eventual Sales",
     "Telegram",
     "Photo Labeling",
@@ -280,7 +710,67 @@ with tab_bench:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Eventual Sales
+# TAB 3 — Model Results
+# ════════════════════════════════════════════════════════════════════════════
+
+with tab_results:
+    cascade_runs = list_live_runs(CASCADE_RESULTS_RUNS, "cascade")
+    basic_runs = list_live_runs(BASIC_VISUAL_RESULTS_RUNS, "basic_plus_visual")
+
+    if not cascade_runs:
+        st.warning("No cascade live runs found.")
+    if not basic_runs:
+        st.warning("No Basic + Visual live runs found.")
+
+    if cascade_runs and basic_runs:
+        select_col1, select_col2 = st.columns(2)
+        with select_col1:
+            cascade_run = st.selectbox(
+                "Cascade run",
+                cascade_runs,
+                index=0,
+                format_func=lambda p: p.name,
+                key="model_results_cascade_run",
+            )
+        with select_col2:
+            basic_run = st.selectbox(
+                "Basic + Visual run",
+                basic_runs,
+                index=0,
+                format_func=lambda p: p.name,
+                key="model_results_basic_visual_run",
+            )
+
+        st.divider()
+        render_model_results_section(
+            "Cascade",
+            cascade_run,
+            load_cascade_results,
+            [
+                ("S1 pass", "unique_stage1_pass"),
+                ("S2 pass", "unique_stage2_pass"),
+                ("S2 sold", "sold_stage2_pass"),
+                ("Tracked rows", "tracked_rows"),
+            ],
+        )
+
+        st.divider()
+        render_model_results_section(
+            "Basic + Visual",
+            basic_run,
+            load_basic_visual_results,
+            [
+                ("Unique scored", "unique_scored"),
+                ("Threshold pass", "unique_threshold_pass"),
+                ("Tracked", "unique_tracked"),
+                ("Sold", "tracked_sold"),
+                ("Scored rows", "scored_rows"),
+            ],
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Eventual Sales
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_eventual:
@@ -348,7 +838,7 @@ with tab_eventual:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Telegram
+# TAB 5 — Telegram
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_telegram:
@@ -455,7 +945,7 @@ with tab_telegram:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Photo Labeling
+# TAB 6 — Photo Labeling
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_photo:

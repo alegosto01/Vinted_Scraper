@@ -23,13 +23,12 @@ from scraping_options import maybe_refresh_daily_eventual_sales_for_running_sche
 
 
 class ScrapingPreflightTests(unittest.TestCase):
-    def make_settings(self, with_residential_proxy: bool, with_datacenter_proxy: bool = False) -> Settings:
+    def make_settings(self, with_datacenter_proxy: bool = True) -> Settings:
         temp_dir = Path(__file__).resolve().parent
         proxy = ProxyConfig(
-            residential_username='user' if with_residential_proxy else None,
-            residential_password='pass' if with_residential_proxy else None,
             datacenter_username='dc-user' if with_datacenter_proxy else None,
             datacenter_password='dc-pass' if with_datacenter_proxy else None,
+            datacenter_proxy_url_override=None,
         )
         return Settings(
             paths=PathsConfig(project_root=temp_dir, data_dir=temp_dir, simple_scrape_dir=temp_dir, full_scrape_dir=temp_dir, models_dir=temp_dir, searches_yaml=Path(__file__).resolve(), brand_ids_csv=Path(__file__).resolve()),
@@ -39,37 +38,18 @@ class ScrapingPreflightTests(unittest.TestCase):
         )
 
     def test_preflight_rejects_invalid_mode(self):
-        result = preflight_parallel_scrape([object()], mode='bad-mode', app_settings=self.make_settings(with_residential_proxy=True))
+        result = preflight_parallel_scrape([object()], mode='bad-mode', app_settings=self.make_settings(with_datacenter_proxy=True))
         self.assertFalse(result.ok)
         self.assertTrue(any('Invalid scrape mode' in message for message in result.errors))
 
-    def test_preflight_rejects_missing_proxy(self):
-        result = preflight_parallel_scrape([object()], mode='collect', app_settings=self.make_settings(with_residential_proxy=False))
-        self.assertFalse(result.ok)
-        self.assertTrue(any('Missing Bright Data residential proxy configuration' in message for message in result.errors))
-
-    def test_preflight_accepts_valid_collect_mode(self):
-        result = preflight_parallel_scrape([object()], mode='collect', app_settings=self.make_settings(with_residential_proxy=True))
-        self.assertTrue(result.ok)
-
-    def test_preflight_accepts_datacenter_only_searches(self):
-        search = type('Search', (), {'no_residential': True})()
-        result = preflight_parallel_scrape(
-            [search],
-            mode='collect',
-            app_settings=self.make_settings(with_residential_proxy=False, with_datacenter_proxy=True),
-        )
-        self.assertTrue(result.ok)
-
-    def test_preflight_rejects_missing_datacenter_proxy_for_no_residential_searches(self):
-        search = type('Search', (), {'no_residential': True})()
-        result = preflight_parallel_scrape(
-            [search],
-            mode='collect',
-            app_settings=self.make_settings(with_residential_proxy=True, with_datacenter_proxy=False),
-        )
+    def test_preflight_rejects_missing_datacenter_proxy(self):
+        result = preflight_parallel_scrape([object()], mode='collect', app_settings=self.make_settings(with_datacenter_proxy=False))
         self.assertFalse(result.ok)
         self.assertTrue(any('Missing Bright Data datacenter proxy configuration' in message for message in result.errors))
+
+    def test_preflight_accepts_valid_collect_mode(self):
+        result = preflight_parallel_scrape([object()], mode='collect', app_settings=self.make_settings(with_datacenter_proxy=True))
+        self.assertTrue(result.ok)
 
     def test_maybe_refresh_daily_eventual_sales_runs_once_per_process_day(self):
         searches = [object()]

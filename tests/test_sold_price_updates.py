@@ -22,7 +22,6 @@ sys.modules.setdefault(
                 scraping_browser_url='',
                 web_unlocker_proxy='',
                 api_token='',
-                residential_proxy_url='',
             ),
             paths=types.SimpleNamespace(brand_ids_csv='data/brand_ids.csv'),
         )

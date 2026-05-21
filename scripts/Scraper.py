@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import re
-import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -32,14 +31,10 @@ SBR_WEBDRIVER = settings.proxy.scraping_browser_url
 proxy = settings.proxy.web_unlocker_proxy
 
 LOGGER = logging.getLogger(__name__)
-RESIDENTIAL_COOLDOWN_SECONDS = 60.0
 DATACENTER_403_WAIT_SECONDS = 180.0
 
 
 class Scraper:
-    _fetch_mode_lock = threading.Lock()
-    _prefer_residential_until = 0.0
-
     def __init__(self):
         self.logger = LOGGER
         self.driver = None
@@ -55,27 +50,6 @@ class Scraper:
             return None
         match = re.search(r'/items/(\d+)', str(url))
         return match.group(1) if match else None
-
-    @classmethod
-    def _activate_residential_cooldown(cls, reason: str, seconds: float = RESIDENTIAL_COOLDOWN_SECONDS) -> None:
-        deadline = time.monotonic() + max(float(seconds), 0.0)
-        with cls._fetch_mode_lock:
-            cls._prefer_residential_until = max(cls._prefer_residential_until, deadline)
-        LOGGER.warning(
-            'Switching to residential-first mode for %.0fs after rendered fetch failure: %s',
-            seconds,
-            reason,
-        )
-
-    @classmethod
-    def _residential_cooldown_remaining(cls) -> float:
-        with cls._fetch_mode_lock:
-            return max(0.0, cls._prefer_residential_until - time.monotonic())
-
-    @classmethod
-    def _reset_fetch_mode_state_for_tests(cls) -> None:
-        with cls._fetch_mode_lock:
-            cls._prefer_residential_until = 0.0
 
     def _build_retry_session(self, total: int = 5, backoff_factor: float = 0.5) -> requests.Session:
         session = requests.Session()
@@ -159,76 +133,6 @@ class Scraper:
         if self.driver is None:
             self.driver = self.init_driver()
         return self.driver
-
-    def get_page_content_residential(self, url, timeout=40, sleep=10, max_attempts=3, request_kind='page'):
-        proxy_url = settings.proxy.residential_proxy_url
-        if not proxy_url:
-            self.logger.error('Missing Bright Data residential proxy configuration')
-            return None
-        attempts_made = 0
-        read_timeout = max(float(timeout), 1.0)
-        connect_timeout = min(15.0, read_timeout)
-
-        headers = self._default_page_headers()
-        proxies = {'http': proxy_url, 'https': proxy_url}
-
-        session = self._build_retry_session(total=5, backoff_factor=1.5)
-        try:
-            for attempt in range(1, max_attempts + 1):
-                attempts_made = attempt
-                try:
-                    response = session.get(
-                        url,
-                        headers=headers,
-                        proxies=proxies,
-                        timeout=(connect_timeout, read_timeout),
-                        verify=False,
-                    )
-                    body = self._response_body_bytes(response)
-                    record_download(
-                        kind=request_kind,
-                        transport='residential_proxy',
-                        url=url,
-                        bytes_downloaded=estimate_response_bytes(response, body=body),
-                        status_code=response.status_code,
-                        ok=self._response_ok(response),
-                        metadata={'attempt': attempt},
-                    )
-                    maybe_track_proxy_identity(
-                        transport='residential_proxy',
-                        proxy_url=proxy_url,
-                        request_url=url,
-                        session=session,
-                        headers=headers,
-                        response_headers=getattr(response, 'headers', None),
-                        verify=False,
-                    )
-                    sleep_if_positive(sleep)
-                    if response.status_code == 200 and body.strip():
-                        self.logger.debug('Residential fetch succeeded for %s on attempt %s', url, attempt)
-                        return response.text
-                    if response.status_code == 404:
-                        self.logger.warning(
-                            'Residential fetch returned status=404 for %s on attempt %s; not retrying',
-                            url,
-                            attempt,
-                        )
-                        break
-                    self.logger.warning(
-                        'Residential fetch returned status=%s for %s on attempt %s',
-                        response.status_code,
-                        url,
-                        attempt,
-                    )
-                except requests.exceptions.RequestException as exc:
-                    self.logger.warning('Residential fetch error for %s on attempt %s: %s', url, attempt, exc)
-                if attempt < max_attempts:
-                    self._sleep_with_backoff(attempt)
-        finally:
-            session.close()
-
-        self.logger.error('Residential fetch failed for %s after %s attempts', url, attempts_made)
-        return None
 
     def get_page_content_datacenter(self, url, timeout=40, sleep=10, max_attempts=3, request_kind='page'):
         proxy_url = settings.proxy.datacenter_proxy_url
@@ -320,16 +224,6 @@ class Scraper:
             self.logger.warning('HTML parsing failed for %s: %s', url, exc)
             return None
 
-    def _get_page_content_residential_html(self, url, timeout=40, sleep=10, max_attempts=3, request_kind='page'):
-        html_text = self.get_page_content_residential(
-            url,
-            timeout=timeout,
-            sleep=sleep,
-            max_attempts=max_attempts,
-            request_kind=request_kind,
-        )
-        return self._html_from_text(html_text, url)
-
     def _get_page_content_datacenter_html(self, url, timeout=40, sleep=10, max_attempts=3, request_kind='page'):
         html_text = self.get_page_content_datacenter(
             url,
@@ -393,7 +287,7 @@ class Scraper:
                         break
                     if response.status_code == 403:
                         self.logger.warning(
-                            'Rendered fetch returned status=403 for %s on attempt %s; switching to residential fallback immediately',
+                            'Rendered fetch returned status=403 for %s on attempt %s; switching to datacenter fallback immediately',
                             url,
                             attempt,
                         )
@@ -444,59 +338,24 @@ class Scraper:
         timeout=100,
         sleep=10,
         max_attempts=3,
-        allow_residential_fallback=True,
         request_kind='item_page',
-        no_residential=False,
     ):
-        if no_residential:
-            return self._get_page_content_datacenter_html(
-                url,
-                timeout=min(timeout, 40),
-                sleep=sleep,
-                max_attempts=max_attempts,
-                request_kind=request_kind,
-            )
+        datacenter_timeout = min(timeout, 40)
+        datacenter_sleep = min(sleep, 10)
 
         api_token = self._get_api_token()
-        residential_timeout = min(timeout, 40)
-        residential_sleep = min(sleep, 10)
-
         if not api_token:
-            if not allow_residential_fallback:
-                self.logger.warning(
-                    'Missing API_TOKEN configuration for rendered-only fetches; cannot fetch %s',
-                    url,
-                )
-                return None
             self.logger.warning(
-                'Missing API_TOKEN configuration for rendered page fetches; falling back to residential HTML fetch for %s',
+                'Missing API_TOKEN configuration for rendered page fetches; using datacenter for %s',
                 url,
             )
-            return self._get_page_content_residential_html(
+            return self._get_page_content_datacenter_html(
                 url,
-                timeout=residential_timeout,
-                sleep=residential_sleep,
+                timeout=datacenter_timeout,
+                sleep=datacenter_sleep,
                 max_attempts=max_attempts,
                 request_kind=request_kind,
             )
-
-        residential_cooldown = self._residential_cooldown_remaining() if allow_residential_fallback else 0.0
-        if allow_residential_fallback and residential_cooldown > 0:
-            listing_id = self._extract_listing_id_from_url(url) or 'unknown'
-            self.logger.warning(
-                'RESIDENTIAL-MODE checking item %s',
-                listing_id,
-            )
-            html = self._get_page_content_residential_html(
-                url,
-                timeout=residential_timeout,
-                sleep=residential_sleep,
-                max_attempts=max_attempts,
-                request_kind=request_kind,
-            )
-            if html is not None:
-                return html
-            self.logger.warning('Residential-first fetch failed for %s; retrying through rendered fetch path', url)
 
         html, last_status, last_error = self._get_page_content_rendered(
             url,
@@ -512,37 +371,26 @@ class Scraper:
         if last_status == 404:
             return None
 
-        if not allow_residential_fallback:
-            if last_status is not None:
-                self.logger.warning(
-                    'Rendered-only fetch failed with status=%s for %s; skipping residential fallback',
-                    last_status,
-                    url,
-                )
-            elif last_error is not None:
-                self.logger.warning(
-                    'Rendered-only fetch failed with request error for %s; skipping residential fallback: %s',
-                    url,
-                    last_error,
-                )
-            return None
-
-        if last_status == 403:
-            reason = f'status=403 for {url}'
-            self._activate_residential_cooldown(reason)
-
-            html = self._get_page_content_residential_html(
+        if last_status is not None:
+            self.logger.warning(
+                'Rendered fetch failed with status=%s for %s; falling back to datacenter',
+                last_status,
                 url,
-                timeout=residential_timeout,
-                sleep=residential_sleep,
-                max_attempts=max_attempts,
-                request_kind=request_kind,
             )
-            if html is not None:
-                self.logger.info('Residential fallback succeeded for %s after rendered 403', url)
-                return html
+        elif last_error is not None:
+            self.logger.warning(
+                'Rendered fetch failed with request error for %s; falling back to datacenter: %s',
+                url,
+                last_error,
+            )
 
-        return None
+        return self._get_page_content_datacenter_html(
+            url,
+            timeout=datacenter_timeout,
+            sleep=datacenter_sleep,
+            max_attempts=max_attempts,
+            request_kind=request_kind,
+        )
 
     def parse_price_text(self, raw_price: Any) -> Optional[float]:
         parsed_price = parse_price_value(raw_price)
@@ -740,10 +588,8 @@ class Scraper:
         check_venduto=True,
         get_upload_date=False,
         initial_delay=0,
-        allow_residential_fallback=True,
         fetch_sleep=50,
         fetch_max_attempts=3,
-        no_residential=False,
     ):
         if initial_delay:
             sleep_if_positive(initial_delay)
@@ -759,9 +605,7 @@ class Scraper:
             timeout=60,
             sleep=fetch_sleep,
             max_attempts=fetch_max_attempts,
-            allow_residential_fallback=allow_residential_fallback,
             request_kind='item_page',
-            no_residential=no_residential,
         )
         if not html_content:
             return item, False, 'FetchFailed'

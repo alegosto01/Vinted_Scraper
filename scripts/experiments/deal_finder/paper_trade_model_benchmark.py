@@ -362,8 +362,6 @@ def normalized_search_config(search_config: object) -> object:
             setattr(config, attr, " ")
     if not getattr(config, "sort", None):
         setattr(config, "sort", "newest_first")
-    if not hasattr(config, "no_residential"):
-        setattr(config, "no_residential", True)
     return config
 
 
@@ -458,10 +456,8 @@ def recheck_benchmark_due(
         due_unique,
         max_workers=max(1, int(max_workers)),
         delay=0.0,
-        allow_residential_fallback=False,
         fetch_sleep=0.0,
         fetch_max_attempts=1,
-        no_residential=True,
     )
     checked["rechecked_at"] = utc_now_iso()
     checked_path = out_dir / f"benchmark_recheck_{pd.Timestamp.now('UTC').strftime('%Y%m%d_%H%M%S')}.csv"

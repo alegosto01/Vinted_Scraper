@@ -49,7 +49,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_refresh_daily_eventual_sales_runs_and_updates_state(self):
-        search = SimpleNamespace(folder='ps4', no_residential=False)
+        search = SimpleNamespace(folder='ps4')
         output_folder = self.simple_scrape_dir / search.folder
         output_folder.mkdir(parents=True, exist_ok=True)
         deals_path = output_folder / daily_module.PIPELINE_OUT_DIR_NAME / daily_module.DEALS_RANKED_FILENAME
@@ -77,8 +77,8 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(kwargs['out_dir'], str(output_folder / daily_module.EVENTUAL_SALES_OUT_DIR_NAME))
         self.assertEqual(kwargs['max_workers'], daily_module.EVENTUAL_SALES_MAX_WORKERS)
         self.assertEqual(kwargs['delay'], daily_module.EVENTUAL_SALES_DELAY_SECONDS)
-        self.assertEqual(kwargs['allow_residential_fallback'], daily_module.EVENTUAL_SALES_ALLOW_RESIDENTIAL_FALLBACK)
-        self.assertFalse(kwargs['no_residential'])
+        self.assertNotIn('allow_residential_fallback', kwargs)
+        self.assertNotIn('no_residential', kwargs)
         self.assertEqual(kwargs['fetch_sleep'], daily_module.EVENTUAL_SALES_FETCH_SLEEP_SECONDS)
         self.assertEqual(kwargs['fetch_max_attempts'], daily_module.EVENTUAL_SALES_FETCH_MAX_ATTEMPTS)
         self.assertEqual(kwargs['min_deal_score'], 2.0)
@@ -93,7 +93,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(writes[0][1]['last_eventual_sale_refresh_sold'], 2)
 
     def test_refresh_daily_eventual_sales_skips_when_already_done_today(self):
-        search = SimpleNamespace(folder='gucci', no_residential=False)
+        search = SimpleNamespace(folder='gucci')
         output_folder = self.simple_scrape_dir / search.folder
         output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -107,7 +107,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         write_mock.assert_not_called()
 
     def test_process_one_background_eventual_sale_updates_outputs_and_state(self):
-        search = SimpleNamespace(folder='prada', no_residential=False)
+        search = SimpleNamespace(folder='prada')
         output_folder = self.simple_scrape_dir / search.folder
         output_folder.mkdir(parents=True, exist_ok=True)
         deals_path = output_folder / daily_module.PIPELINE_OUT_DIR_NAME / daily_module.DEALS_RANKED_FILENAME
@@ -160,7 +160,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(state_store[daily_module.EVENTUAL_SALES_BACKGROUND_LAST_STATUS_KEY], 'Sold')
 
     def test_select_next_background_candidate_skips_items_already_in_sold_df(self):
-        search = SimpleNamespace(folder='gucci', no_residential=False)
+        search = SimpleNamespace(folder='gucci')
         output_folder = self.simple_scrape_dir / search.folder
         output_folder.mkdir(parents=True, exist_ok=True)
         deals_path = output_folder / daily_module.PIPELINE_OUT_DIR_NAME / daily_module.DEALS_RANKED_FILENAME
@@ -187,7 +187,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(int(candidate_df.iloc[0]['Dataid']), 11)
 
     def test_ensure_daily_deals_ranked_runs_batch_once_per_day(self):
-        search = SimpleNamespace(folder='ps4', no_residential=False)
+        search = SimpleNamespace(folder='ps4')
         output_folder = self.simple_scrape_dir / search.folder
         output_folder.mkdir(parents=True, exist_ok=True)
         big_raw_path = output_folder / 'big_raw.csv'
@@ -226,7 +226,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(state_store['last_deals_ranked_refresh_input'], 'big_raw.csv')
 
     def test_process_one_background_eventual_sale_prioritizes_queue(self):
-        search = SimpleNamespace(folder='gucci', no_residential=False)
+        search = SimpleNamespace(folder='gucci')
         output_folder = self.simple_scrape_dir / search.folder
         queue_dir = output_folder / daily_module.EVENTUAL_SALES_OUT_DIR_NAME
         queue_dir.mkdir(parents=True, exist_ok=True)
@@ -289,7 +289,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(state_store[daily_module.EVENTUAL_SALES_BACKGROUND_LAST_SOURCE_KEY], 'priority')
 
     def test_priority_sold_items_update_sold_df_without_entering_sold_eventually(self):
-        search = SimpleNamespace(folder='borse', no_residential=False)
+        search = SimpleNamespace(folder='borse')
         output_folder = self.simple_scrape_dir / search.folder
         queue_dir = output_folder / daily_module.EVENTUAL_SALES_OUT_DIR_NAME
         queue_dir.mkdir(parents=True, exist_ok=True)
@@ -385,7 +385,7 @@ class DailyEventuallySoldTests(unittest.TestCase):
         self.assertEqual(int(queue_df.loc[0, daily_module.PRIORITY_QUEUE_ATTEMPTS_COLUMN]), 1)
 
     def test_select_next_priority_candidate_skips_rows_older_than_30_days(self):
-        search = SimpleNamespace(folder='ps4', no_residential=False)
+        search = SimpleNamespace(folder='ps4')
         output_folder = self.simple_scrape_dir / search.folder
         queue_dir = output_folder / daily_module.EVENTUAL_SALES_OUT_DIR_NAME
         queue_dir.mkdir(parents=True, exist_ok=True)

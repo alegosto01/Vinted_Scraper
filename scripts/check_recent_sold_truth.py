@@ -27,8 +27,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max_workers", type=int, default=4, help="Parallel workers per sold_df.csv run")
     ap.add_argument("--fetch_sleep", type=float, default=0.5, help="Sleep before each item-page fetch")
     ap.add_argument("--fetch_max_attempts", type=int, default=1, help="Max item-page fetch attempts")
-    ap.add_argument("--no_residential", action="store_true", help="Use only the datacenter proxy path")
-    ap.add_argument("--allow_residential_fallback", action="store_true", help="Allow residential fallback")
     ap.add_argument("--output_root", default=None, help="Optional output directory. Defaults under data/")
     return ap.parse_args()
 
@@ -88,11 +86,9 @@ def run_one_csv(path: Path, root: Path, out_root: Path, args: argparse.Namespace
         out_dir=str(csv_output_dir),
         max_workers=args.max_workers,
         delay=0.0,
-        allow_residential_fallback=args.allow_residential_fallback,
         initial_delay=0.0,
         fetch_sleep=args.fetch_sleep,
         fetch_max_attempts=args.fetch_max_attempts,
-        no_residential=args.no_residential,
         recheck_sold_rows=True,
     )
     metrics = summarize_output_paths(

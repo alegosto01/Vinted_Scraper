@@ -447,10 +447,8 @@ def run_iteration(
             due,
             max_workers=1,
             delay=0.0,
-            allow_residential_fallback=False,
             fetch_sleep=0.0,
             fetch_max_attempts=1,
-            no_residential=True,
         )
         checked["rechecked_at"] = utc_now_iso()
         checked_path = rechecks_dir / f"recheck_{pd.Timestamp.now(tz='UTC').strftime('%Y%m%d_%H%M%S')}.csv"

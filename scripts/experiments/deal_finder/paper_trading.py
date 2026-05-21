@@ -140,7 +140,6 @@ def _load_searches_yaml_fallback(path: Path) -> dict[str, object]:
         "enabled": True,
         "tags": [],
         "wrong_words": [],
-        "no_residential": True,
     }
     searches: dict[str, object] = {}
     current_name = None
@@ -181,9 +180,9 @@ def load_search_config_by_folder(extra_folders: list[str] | None = None) -> dict
     for folder in extra_folders or []:
         if folder and folder not in out:
             if search_config_class is not None:
-                out[folder] = search_config_class(search="", folder=folder, enabled=True, no_residential=True)
+                out[folder] = search_config_class(search="", folder=folder, enabled=True)
             else:
-                out[folder] = SimpleNamespace(search="", folder=folder, enabled=True, no_residential=True)
+                out[folder] = SimpleNamespace(search="", folder=folder, enabled=True)
     return out
 
 
@@ -360,10 +359,8 @@ def recheck_due(
         due,
         max_workers=1,
         delay=0.0,
-        allow_residential_fallback=False,
         fetch_sleep=0.0,
         fetch_max_attempts=1,
-        no_residential=True,
     )
     checked["rechecked_at"] = utc_now_iso()
     checked_path = live_run / f"recheck_{pd.Timestamp.now('UTC').strftime('%Y%m%d_%H%M%S')}.csv"

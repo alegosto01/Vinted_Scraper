@@ -83,9 +83,43 @@ Precision is reported for checkpoint windows:
 60h, 72h, ..., 168h
 ```
 
+## Non-Skippable Rules
+
+These rules are part of the cascade contract and must not be skipped by any
+runner, restart, repair script, or manual collection command:
+
+- Item identity is `(SearchName, item_id)`, with `item_id` normalized from
+  `Dataid` or the Vinted item URL. This key decides whether an item has already
+  been seen.
+- Each item is scored by stage 1 at most once per run. After a stage-1 decision
+  exists, later hourly catalog snapshots must not score that item again.
+- Stage-1 rejects must be remembered in run state, not silently forgotten. A
+  rejected item should not re-enter stage 1 on the next hourly snapshot.
+- Each stage-1 pass item may enter the expensive path at most once: one full
+  item-page collection, one primary-image download/cache pass, one visual
+  feature extraction pass, and one stage-2 score.
+- After stage 2 has a decision, the item must not be full-scraped, visually
+  enriched, or stage-2 scored again in the same run. Only market-status rechecks
+  are allowed.
+- Items that are tracked for precision or false-negative analysis are rechecked
+  only according to the schedule above until they are sold or age out of the
+  7-day horizon.
+- Rechecks must fetch only the minimum data needed to decide whether the item is
+  still on sale or sold. They must not refresh model features or alter prior
+  stage scores.
+- Reports must separate repeated collection events from unique item counts.
+  Model quality and precision decisions should be based on unique items, while
+  event counts are only for operational load monitoring.
+- Restarting the loop must resume the existing run state before scraping. A
+  restart must not create duplicate work for items that already have stage-1 or
+  stage-2 decisions.
+
 ## Metrics
 
 The main metric is final precision among items that passed both stages.
+
+Show live results with the unique-item, matured-cohort format described in
+[`CASCADE_RESULTS_REPORTING.md`](CASCADE_RESULTS_REPORTING.md).
 
 The report also tracks:
 

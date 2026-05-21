@@ -140,10 +140,6 @@ class ProxyConfig:
     datacenter_port: int = int(os.getenv('BRIGHTDATA_DATACENTER_PORT', '33335'))
     datacenter_username: str | None = os.getenv('BRIGHTDATA_DATACENTER_USERNAME')
     datacenter_password: str | None = os.getenv('BRIGHTDATA_DATACENTER_PASSWORD')
-    residential_host: str = os.getenv('BRIGHTDATA_RESIDENTIAL_HOST', 'brd.superproxy.io')
-    residential_port: int = int(os.getenv('BRIGHTDATA_RESIDENTIAL_PORT', '33335'))
-    residential_username: str | None = os.getenv('BRIGHTDATA_RESIDENTIAL_USERNAME')
-    residential_password: str | None = os.getenv('BRIGHTDATA_RESIDENTIAL_PASSWORD')
     web_unlocker_proxy: str | None = os.getenv('BRIGHTDATA_WEB_UNLOCKER_PROXY')
 
     @property
@@ -162,19 +158,6 @@ class ProxyConfig:
             f'http://{self.datacenter_username}:{self.datacenter_password}'
             f'@{self.datacenter_host}:{self.datacenter_port}'
         )
-
-    @property
-    def residential_proxy_url(self) -> str | None:
-        if not self.residential_username or not self.residential_password:
-            return None
-        return (
-            f'http://{self.residential_username}:{self.residential_password}'
-            f'@{self.residential_host}:{self.residential_port}'
-        )
-
-    @property
-    def has_residential_proxy(self) -> bool:
-        return bool(self.residential_proxy_url)
 
     @property
     def has_datacenter_proxy(self) -> bool:
@@ -227,10 +210,11 @@ class Settings:
             result.warnings.append(f'Brand IDs CSV not found yet: {self.paths.brand_ids_csv}')
         if not searches:
             result.errors.append('No enabled searches were loaded. Check data/searches.yaml.')
-        if require_proxy and not self.proxy.has_residential_proxy:
+        if require_proxy and not self.proxy.has_datacenter_proxy:
             result.errors.append(
-                'Missing Bright Data residential proxy configuration. '
-                'Set BRIGHTDATA_RESIDENTIAL_USERNAME and BRIGHTDATA_RESIDENTIAL_PASSWORD in .env.'
+                'Missing Bright Data datacenter proxy configuration. '
+                'Set BRIGHTDATA_DATACENTER_USERNAME and BRIGHTDATA_DATACENTER_PASSWORD in .env, '
+                'or set BRIGHTDATA_DATACENTER_PROXY_URL.'
             )
         if not self.telegram.is_configured:
             result.warnings.append('Telegram notifications are not fully configured; scraper notifications may be skipped.')

@@ -91,8 +91,6 @@ def full_text(*, include_upload_date: bool) -> list[str]:
 
 VISUAL_NUMERIC = [
     "SimpleBadPhotoScore",
-    "PyiqaQualityScore",
-    "PyiqaBadPhotoScore",
     "AestheticGoodScore",
     "AestheticBadPhotoScore",
     "DinoEmbeddingDim",

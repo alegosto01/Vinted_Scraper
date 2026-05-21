@@ -41,29 +41,13 @@ LOGGER = logging.getLogger(__name__)
 VALID_SCRAPE_MODES = {'collect', 'online'}
 
 
-def _has_required_catalog_proxy(app_settings=settings) -> bool:
-    return bool(app_settings.proxy.residential_proxy_url)
-
-
-def _search_uses_no_residential(search) -> bool:
-    return bool(getattr(search, 'no_residential', False))
-
-
 def preflight_parallel_scrape(programmed_searches, mode='collect', app_settings=settings):
     result = app_settings.validate_for_simple_scrape(programmed_searches, require_proxy=False)
     if mode not in VALID_SCRAPE_MODES:
         result.errors.append(f"Invalid scrape mode: {mode}. Expected one of {sorted(VALID_SCRAPE_MODES)}")
-    searches = list(programmed_searches)
-    requires_residential = any(not _search_uses_no_residential(search) for search in searches)
-    requires_datacenter = any(_search_uses_no_residential(search) for search in searches)
-    if requires_residential and not app_settings.proxy.has_residential_proxy:
+    if not app_settings.proxy.has_datacenter_proxy:
         result.errors.append(
-            'Missing Bright Data residential proxy configuration for searches that allow residential mode. '
-            'Set BRIGHTDATA_RESIDENTIAL_USERNAME and BRIGHTDATA_RESIDENTIAL_PASSWORD in .env.'
-        )
-    if requires_datacenter and not app_settings.proxy.has_datacenter_proxy:
-        result.errors.append(
-            'Missing Bright Data datacenter proxy configuration for searches with no_residential=true. '
+            'Missing Bright Data datacenter proxy configuration. '
             'Set BRIGHTDATA_DATACENTER_USERNAME and BRIGHTDATA_DATACENTER_PASSWORD in .env, '
             'or set BRIGHTDATA_DATACENTER_PROXY_URL.'
         )
@@ -582,7 +566,6 @@ def _process_one_search(ricerca, search_count, pages_to_scrape):
             new_df, deal_finder_summary = full_scraper.score_and_collect_extremes_for_live_rows(
                 ricerca.folder,
                 new_df,
-                no_residential=bool(getattr(ricerca, "no_residential", False)),
                 low_threshold=0.05,
                 high_threshold=0.95,
                 max_workers=2,
@@ -855,11 +838,9 @@ def parse_relative_upload_date_to_days(value):
 def _check_sold_with_own_driver(
     row,
     *,
-    allow_residential_fallback=False,
     initial_delay=0.0,
     fetch_sleep=60.0,
     fetch_max_attempts=1,
-    no_residential=False,
 ):
     item_identifier = row.get("Dataid") or row.get("item_id") or row.get("Link") or row.name
     with eventual_sales_log_context():
@@ -874,10 +855,8 @@ def _check_sold_with_own_driver(
                 check_venduto=True,
                 get_upload_date=True,
                 initial_delay=initial_delay,
-                allow_residential_fallback=allow_residential_fallback,
                 fetch_sleep=fetch_sleep,
                 fetch_max_attempts=fetch_max_attempts,
-                no_residential=no_residential,
             )
             upload_date = item.get("Upload_date", "Unknown")
             page_price = item.get("ObservedPagePrice")
@@ -901,11 +880,9 @@ def _update_market_status_for_df(
     df,
     max_workers=1,
     delay=0.0,
-    allow_residential_fallback=False,
     initial_delay=0.0,
     fetch_sleep=60.0,
     fetch_max_attempts=1,
-    no_residential=False,
     recheck_sold_rows=False,
 ):
     out = df.copy()
@@ -959,11 +936,9 @@ def _update_market_status_for_df(
                 ex.submit(
                     _check_sold_with_own_driver,
                     out.loc[idx],
-                    allow_residential_fallback=allow_residential_fallback,
                     initial_delay=initial_delay,
                     fetch_sleep=fetch_sleep,
                     fetch_max_attempts=fetch_max_attempts,
-                    no_residential=no_residential,
                 )
             )
             sleep_if_positive(delay)
@@ -1001,22 +976,18 @@ def returnNewSoldItemsInCsv_parallel(
     csv,
     max_workers=1,
     delay=0.0,
-    allow_residential_fallback=False,
     initial_delay=0.0,
     fetch_sleep=60.0,
     fetch_max_attempts=1,
-    no_residential=False,
 ):
     df = pd.read_csv(csv)
     _, sold_df = _update_market_status_for_df(
         df,
         max_workers=max_workers,
         delay=delay,
-        allow_residential_fallback=allow_residential_fallback,
         initial_delay=initial_delay,
         fetch_sleep=fetch_sleep,
         fetch_max_attempts=fetch_max_attempts,
-        no_residential=no_residential,
     )
     return sold_df.to_dict("records")
 
@@ -1031,11 +1002,9 @@ def update_eventual_sale_labels_for_csv(
     top_n=None,
     require_deal_eligible=False,
     sort_by=None,
-    allow_residential_fallback=False,
     initial_delay=0.0,
     fetch_sleep=60.0,
     fetch_max_attempts=1,
-    no_residential=False,
     recheck_sold_rows=False,
     exclude_known_sold_csv=None,
 ):
@@ -1063,11 +1032,9 @@ def update_eventual_sale_labels_for_csv(
         df,
         max_workers=max_workers,
         delay=delay,
-        allow_residential_fallback=allow_residential_fallback,
         initial_delay=initial_delay,
         fetch_sleep=fetch_sleep,
         fetch_max_attempts=fetch_max_attempts,
-        no_residential=no_residential,
         recheck_sold_rows=recheck_sold_rows,
     )
     labeled_df = dedupe_market_rows(labeled_df, keep="last")
@@ -1102,11 +1069,9 @@ def update_eventual_sale_labels_for_csv(
             "top_n": top_n,
             "require_deal_eligible": bool(require_deal_eligible),
             "sort_by": sort_by,
-            "allow_residential_fallback": bool(allow_residential_fallback),
             "initial_delay": float(initial_delay),
             "fetch_sleep": float(fetch_sleep),
             "fetch_max_attempts": int(fetch_max_attempts),
-            "no_residential": bool(no_residential),
             "recheck_sold_rows": bool(recheck_sold_rows),
             "exclude_known_sold_csv": exclude_known_sold_csv,
         },

@@ -205,7 +205,6 @@ class FullScrapeEnrichmentTests(unittest.TestCase):
                     search_name="ps4",
                     reason="sold_backfill",
                     max_workers=1,
-                    no_residential=True,
                     image_mode="html",
                 )
 
@@ -274,14 +273,13 @@ class FullScrapeEnrichmentTests(unittest.TestCase):
                     daily_eventual_sales._sync_priority_result_to_tracking_files(
                         output_folder,
                         checked,
-                        no_residential=True,
                     )
 
             sold = pd.read_csv(output_folder / "sold_df.csv")
             self.assertEqual(sold["MarketStatus"].tolist(), ["Sold"])
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][1]["reason"], "sold_confirmed_live")
-            self.assertTrue(calls[0][1]["no_residential"])
+            self.assertNotIn("no_residential", calls[0][1])
 
 
 if __name__ == "__main__":

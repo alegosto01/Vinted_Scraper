@@ -1,7 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Dict, List
 
 import yaml
+
+
+_DEPRECATED_KEYS = frozenset({"no_residential"})
 
 
 @dataclass
@@ -31,7 +34,6 @@ class SearchConfig:
     fast_sale_hours: float = 12.0
     good_deal_min_score: float = 2.0
     good_deal_min_confidence: float = 0.6
-    no_residential: bool = False
     cascade_only: bool = False
 
     def __post_init__(self):
@@ -51,11 +53,13 @@ def load_searches(path: str) -> Dict[str, SearchConfig]:
     if not isinstance(raw, dict):
         raise ValueError(f"Searches YAML must contain a mapping of search names to configs: {path}")
 
+    valid_keys = {field.name for field in fields(SearchConfig)}
     searches: Dict[str, SearchConfig] = {}
 
     for name, data in raw.items():
         if not isinstance(data, dict):
             raise ValueError(f"Search entry '{name}' must be a mapping, got {type(data).__name__}")
-        searches[name] = SearchConfig(**data)
+        cleaned = {key: value for key, value in data.items() if key in valid_keys and key not in _DEPRECATED_KEYS}
+        searches[name] = SearchConfig(**cleaned)
 
     return searches

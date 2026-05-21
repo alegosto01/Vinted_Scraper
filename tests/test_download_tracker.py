@@ -20,7 +20,7 @@ class DownloadTrackerTests(unittest.TestCase):
             with patch.dict(os.environ, {"VINTED_DOWNLOAD_STATS_PATH": str(stats_file)}, clear=False):
                 record_download(
                     kind="catalog_page",
-                    transport="residential_proxy",
+                    transport="datacenter_proxy",
                     url="https://www.vinted.it/catalog?search_text=ps4",
                     bytes_downloaded=1024,
                     status_code=200,
@@ -40,7 +40,7 @@ class DownloadTrackerTests(unittest.TestCase):
         self.assertEqual(summary["events"], 2)
         self.assertEqual(summary["total_bytes"], 3072)
         self.assertEqual(summary["by_transport"]["direct"]["bytes"], 2048)
-        self.assertEqual(summary["by_transport"]["residential_proxy"]["bytes"], 1024)
+        self.assertEqual(summary["by_transport"]["datacenter_proxy"]["bytes"], 1024)
         self.assertEqual(summary["by_kind"]["catalog_page"]["events"], 1)
         self.assertEqual(summary["by_host"]["www.vinted.it"]["bytes"], 1024)
 

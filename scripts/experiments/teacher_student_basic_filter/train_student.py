@@ -423,6 +423,66 @@ def choose_threshold_for_precision_at_k(
     }
 
 
+def choose_threshold_for_pass_rate(
+    scores: np.ndarray,
+    teacher_pass: np.ndarray,
+    *,
+    target_pass_rate: float = 0.15,
+    min_precision: float = 0.5,
+) -> dict[str, Any]:
+    """Choose a threshold that passes roughly target_pass_rate fraction of items,
+    while keeping precision above min_precision if possible."""
+    teacher_pass = np.asarray(teacher_pass, dtype=bool)
+    if len(scores) == 0:
+        return {"threshold": 1.0, "precision_at_k": np.nan, "selected_count": 0, "teacher_selected_count": 0, "pass_rate": target_pass_rate}
+    sorted_scores = np.sort(scores)[::-1]
+    n = len(scores)
+    # Try thresholds at various percentiles, from high to low
+    best = None
+    for percentile in np.linspace(0.90, 0.50, 41):
+        threshold = float(np.quantile(scores, percentile))
+        selected = scores >= threshold
+        selected_count = int(selected.sum())
+        if selected_count == 0:
+            continue
+        teacher_selected = int((selected & teacher_pass).sum())
+        precision = float(teacher_selected / selected_count)
+        pass_rate = float(selected_count / n)
+        row = {
+            "threshold": threshold,
+            "precision_at_k": precision,
+            "selected_count": selected_count,
+            "teacher_selected_count": teacher_selected,
+            "pass_rate": pass_rate,
+        }
+        if precision >= min_precision and pass_rate <= target_pass_rate:
+            if best is None or pass_rate > best["pass_rate"] or (
+                pass_rate == best["pass_rate"] and precision > best["precision_at_k"]
+            ):
+                best = row
+    # Fallback: if no threshold meets min_precision, pick the one with highest precision
+    if best is None:
+        candidates = sorted(set(np.round(np.asarray(scores, dtype=float), 6).tolist()), reverse=True)
+        for threshold in candidates:
+            selected = scores >= threshold
+            selected_count = int(selected.sum())
+            if selected_count == 0:
+                continue
+            teacher_selected = int((selected & teacher_pass).sum())
+            precision = float(teacher_selected / selected_count)
+            pass_rate = float(selected_count / n)
+            row = {
+                "threshold": threshold,
+                "precision_at_k": precision,
+                "selected_count": selected_count,
+                "teacher_selected_count": teacher_selected,
+                "pass_rate": pass_rate,
+            }
+            if best is None or precision > best["precision_at_k"]:
+                best = row
+    return best or {"threshold": 1.0, "precision_at_k": np.nan, "selected_count": 0, "teacher_selected_count": 0, "pass_rate": 0.0}
+
+
 def selection_metrics(
     frame: pd.DataFrame,
     *,
@@ -620,10 +680,12 @@ def train_one_search(
                     target_precision_value = float(target)
                     target_binary_k_value = None
                 else:
-                    chosen = choose_threshold_for_precision_at_k(
+                    # Use pass-rate-based threshold to ensure enough items get through stage 1
+                    chosen = choose_threshold_for_pass_rate(
                         student_predictions[spec.name]["validation"],
                         split_scores["validation"]["teacher_pass"],
-                        k=int(target),
+                        target_pass_rate=0.15,
+                        min_precision=0.5,
                     )
                     target_recall_value = None
                     target_precision_value = None
@@ -730,9 +792,11 @@ def choose_best_for_search(
             kind="stable",
         )
     else:
+        # For binary/cascade use, prefer models that pass enough items while maintaining decent precision
+        subset["meets_min_rate"] = subset["selected_rate"].fillna(0.0) >= 0.03
         subset = subset.sort_values(
-            ["precision_at_k", "recall_at_k", "roc_auc"],
-            ascending=[False, False, False],
+            ["meets_min_rate", "precision_at_k", "selected_rate", "recall_at_k", "roc_auc"],
+            ascending=[False, False, False, False, False],
             kind="stable",
         )
     return subset.iloc[0].to_dict()

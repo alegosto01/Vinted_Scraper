@@ -53,7 +53,7 @@ class SearchLoaderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_searches(path)
 
-    def test_load_searches_reads_no_residential_flag(self):
+    def test_load_searches_ignores_deprecated_no_residential_key(self):
         path = self.write_temp_yaml(
             "ps5:\n"
             "  search: PlayStation 5\n"
@@ -63,4 +63,5 @@ class SearchLoaderTests(unittest.TestCase):
 
         searches = load_searches(path)
 
-        self.assertTrue(searches["ps5"].no_residential)
+        self.assertIn("ps5", searches)
+        self.assertFalse(hasattr(searches["ps5"], "no_residential"))

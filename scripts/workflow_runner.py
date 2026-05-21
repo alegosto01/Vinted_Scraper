@@ -49,11 +49,9 @@ def run_update_eventual_sales(args: argparse.Namespace) -> int:
         top_n=args.top_n,
         require_deal_eligible=args.require_deal_eligible,
         sort_by=args.sort_by,
-        allow_residential_fallback=args.allow_residential_fallback,
         initial_delay=args.initial_delay,
         fetch_sleep=args.fetch_sleep,
         fetch_max_attempts=args.fetch_max_attempts,
-        no_residential=args.no_residential,
         recheck_sold_rows=args.recheck_sold_rows,
         exclude_known_sold_csv=exclude_known_sold_csv,
     )
@@ -242,8 +240,6 @@ def build_parser() -> argparse.ArgumentParser:
     upd.add_argument('--use_pipeline_out', action='store_true', help='Default input becomes pipeline_out/deals_ranked.csv instead of big_raw.csv')
     upd.add_argument('--max_workers', type=int, default=1)
     upd.add_argument('--delay', type=float, default=0.0)
-    upd.add_argument('--allow_residential_fallback', action='store_true')
-    upd.add_argument('--no_residential', action='store_true')
     upd.add_argument('--initial_delay', type=float, default=0.0)
     upd.add_argument('--fetch_sleep', type=float, default=60.0)
     upd.add_argument('--fetch_max_attempts', type=int, default=1)

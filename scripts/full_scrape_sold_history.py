@@ -18,10 +18,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.project_config import settings
-try:
-    from config.search_loader import load_searches
-except Exception:
-    load_searches = None
 from full_scraper import Full_Scraper
 
 
@@ -53,16 +49,6 @@ def dedupe_sold_rows(df: pd.DataFrame) -> pd.DataFrame:
         return out.drop(columns=["_identity"], errors="ignore")
     out = out.drop_duplicates(subset=["_identity"], keep="last")
     return out.drop(columns=["_identity"], errors="ignore").reset_index(drop=True)
-
-
-def load_search_config_by_folder() -> dict[str, object]:
-    if load_searches is None:
-        return {}
-    try:
-        searches = load_searches(str(settings.paths.searches_yaml))
-    except Exception:
-        return {}
-    return {str(search.folder): search for search in searches.values()}
 
 
 def search_dirs(args: argparse.Namespace) -> list[Path]:
@@ -116,7 +102,6 @@ def write_summary(summary: dict[str, Any]) -> Path:
 
 def run(args: argparse.Namespace) -> int:
     scraper = Full_Scraper()
-    configs = load_search_config_by_folder()
     selected_dirs = search_dirs(args)
     if not selected_dirs:
         print("No per-search sold_df.csv files found.")
@@ -134,10 +119,7 @@ def run(args: argparse.Namespace) -> int:
     for search_dir in selected_dirs:
         search_name = search_dir.name
         pending_df, stats = pending_rows_for_search(scraper, search_dir, limit=args.limit_per_search)
-        search_config = configs.get(search_name)
-        no_residential = bool(getattr(search_config, "no_residential", True))
         stats.update({
-            "no_residential": bool(no_residential),
             "batches": 0,
             "processed": 0,
             "succeeded": 0,
@@ -161,7 +143,6 @@ def run(args: argparse.Namespace) -> int:
                 search_name=search_name,
                 reason="sold_backfill",
                 max_workers=int(args.max_workers),
-                no_residential=no_residential,
                 image_mode=args.image_mode,
                 skip_existing=True,
             )

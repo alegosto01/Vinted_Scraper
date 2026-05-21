@@ -504,7 +504,6 @@ class Full_Scraper(Scraper):
         *,
         search_name: str,
         reason: str,
-        no_residential: bool = False,
         image_mode: str = "html",
     ) -> tuple[dict | None, dict | None]:
         scraped_at = datetime.now().astimezone().isoformat()
@@ -526,7 +525,6 @@ class Full_Scraper(Scraper):
                 data_id=data_id,
                 get_images=True,
                 image_mode=image_mode,
-                no_residential=no_residential,
                 fetch_sleep=0,
                 fetch_max_attempts=1,
                 post_fetch_sleep=0,
@@ -584,7 +582,6 @@ class Full_Scraper(Scraper):
         search_name: str,
         reason: str,
         max_workers: int = 2,
-        no_residential: bool = False,
         image_mode: str = "html",
         skip_existing: bool = False,
         output_subdir: str | None = None,
@@ -630,7 +627,6 @@ class Full_Scraper(Scraper):
                 row,
                 search_name=search_name,
                 reason=row_reason,
-                no_residential=no_residential,
                 image_mode=image_mode,
             )
 
@@ -673,7 +669,6 @@ class Full_Scraper(Scraper):
         search_name: str,
         df: pd.DataFrame,
         *,
-        no_residential: bool = False,
         low_threshold: float = DEFAULT_LOW_SCORE_THRESHOLD,
         high_threshold: float = DEFAULT_HIGH_SCORE_THRESHOLD,
         max_workers: int = 2,
@@ -696,7 +691,6 @@ class Full_Scraper(Scraper):
                 search_name=search_name,
                 reason="score_extreme",
                 max_workers=max_workers,
-                no_residential=no_residential,
                 image_mode="html",
                 skip_existing=False,
             )
@@ -780,19 +774,15 @@ class Full_Scraper(Scraper):
         data_id,
         get_images=False,
         image_mode="html",
-        no_residential=False,
-        allow_residential_fallback=True,
         fetch_sleep=10,
         fetch_max_attempts=3,
         post_fetch_sleep=0,
     ): #dictionary was a parameter
-        
+
         html_content = self.get_page_content(
             url,
             sleep=fetch_sleep,
             max_attempts=fetch_max_attempts,
-            allow_residential_fallback=allow_residential_fallback,
-            no_residential=no_residential,
         )
 
         if html_content is None:

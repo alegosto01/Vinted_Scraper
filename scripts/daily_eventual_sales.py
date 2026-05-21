@@ -20,7 +20,6 @@ EVENTUAL_SALES_MAX_WORKERS = 3
 EVENTUAL_SALES_DELAY_SECONDS = 5.0
 EVENTUAL_SALES_FETCH_SLEEP_SECONDS = 0.0
 EVENTUAL_SALES_FETCH_MAX_ATTEMPTS = 1
-EVENTUAL_SALES_ALLOW_RESIDENTIAL_FALLBACK = True
 EVENTUAL_SALES_BACKGROUND_INTERVAL_SECONDS = 60.0
 EVENTUAL_SALES_BACKGROUND_WORKER_COUNT = 3
 EVENTUAL_SALES_BACKGROUND_WORKER_STAGGER_SECONDS = 20.0
@@ -39,10 +38,6 @@ PRIORITY_QUEUE_LAST_STATUS_COLUMN = "PriorityQueueLastStatus"
 PRIORITY_QUEUE_LAST_CHECKED_AT_COLUMN = "PriorityQueueLastCheckedAt"
 PRIORITY_QUEUE_ATTEMPTS_COLUMN = "PriorityQueueAttempts"
 PRIORITY_QUEUE_MAX_AGE_DAYS = 30
-
-
-def search_no_residential(search) -> bool:
-    return bool(getattr(search, "no_residential", False))
 
 
 def today_local_iso(now: datetime | None = None) -> str:
@@ -284,7 +279,7 @@ def _finalize_priority_candidate(output_folder: Path, checked_row: pd.DataFrame)
     write_csv_atomic(remaining, str(queue_path))
 
 
-def _sync_priority_result_to_tracking_files(output_folder: Path, checked_row: pd.DataFrame, *, no_residential: bool = False) -> None:
+def _sync_priority_result_to_tracking_files(output_folder: Path, checked_row: pd.DataFrame) -> None:
     from scraping_options import dedupe_market_rows, ensure_search_tracking_files, write_csv_atomic
 
     ensure_search_tracking_files(str(output_folder))
@@ -355,7 +350,6 @@ def _sync_priority_result_to_tracking_files(output_folder: Path, checked_row: pd
                 search_name=output_folder.name,
                 reason="sold_confirmed_live",
                 max_workers=1,
-                no_residential=no_residential,
                 image_mode="html",
                 skip_existing=False,
             )
@@ -569,11 +563,9 @@ def process_one_background_eventual_sale(search) -> bool:
             candidate_df,
             max_workers=EVENTUAL_SALES_MAX_WORKERS,
             delay=EVENTUAL_SALES_DELAY_SECONDS,
-            allow_residential_fallback=EVENTUAL_SALES_ALLOW_RESIDENTIAL_FALLBACK and not search_no_residential(search),
             initial_delay=0.0,
             fetch_sleep=EVENTUAL_SALES_FETCH_SLEEP_SECONDS,
             fetch_max_attempts=EVENTUAL_SALES_FETCH_MAX_ATTEMPTS,
-            no_residential=search_no_residential(search),
         )
         checked_df = checked_df.reset_index(drop=True)
         if source == "priority":
@@ -581,7 +573,6 @@ def process_one_background_eventual_sale(search) -> bool:
             _sync_priority_result_to_tracking_files(
                 output_folder,
                 checked_df,
-                no_residential=search_no_residential(search),
             )
         merged, merged_sold = _merge_background_results(output_folder, checked_df)
 
@@ -736,10 +727,8 @@ def refresh_daily_eventual_sales(programmed_searches, today_iso: str | None = No
                 top_n=100,
                 require_deal_eligible=True,
                 sort_by="DealScore,DealConfidence,SearchCount",
-                allow_residential_fallback=EVENTUAL_SALES_ALLOW_RESIDENTIAL_FALLBACK and not search_no_residential(search),
                 fetch_sleep=EVENTUAL_SALES_FETCH_SLEEP_SECONDS,
                 fetch_max_attempts=EVENTUAL_SALES_FETCH_MAX_ATTEMPTS,
-                no_residential=search_no_residential(search),
                 exclude_known_sold_csv=str(output_folder / "sold_df.csv"),
             )
 

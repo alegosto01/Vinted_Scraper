@@ -149,17 +149,13 @@ class Simple_scraper(Scraper):
             'products_dropped': 0,
         }
         webpage = self.create_webpage(dictionary)
-        no_residential = bool(getattr(dictionary, 'no_residential', False))
 
         for page in range(pages_to_scrape):
             stats['pages_attempted'] += 1
             new_webpage = webpage + '&page=' + str(page + 1)
             self.logger.info('Simple scrape search=%s page=%s url=%s', dictionary.folder, page + 1, new_webpage)
 
-            if no_residential:
-                html_text = self.get_page_content_datacenter(new_webpage, request_kind='catalog_page')
-            else:
-                html_text = self.get_page_content_residential(new_webpage, request_kind='catalog_page')
+            html_text = self.get_page_content_datacenter(new_webpage, request_kind='catalog_page')
             if not isinstance(html_text, str) or not html_text.strip():
                 stats['pages_parse_failed'] += 1
                 self.logger.warning('Skipping empty catalog response for search=%s page=%s', dictionary.folder, page + 1)

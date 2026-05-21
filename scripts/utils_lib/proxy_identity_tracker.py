@@ -251,7 +251,7 @@ def maybe_track_proxy_identity(
     timeout: tuple[int, int] = (10, 25),
     path: str | Path | None = None,
 ) -> None:
-    if not proxy_url or transport not in {"residential_proxy", "datacenter_proxy"}:
+    if not proxy_url or transport != "datacenter_proxy":
         return
 
     sample_every = _env_int("VINTED_PROXY_IDENTITY_SAMPLE_EVERY", 20)

@@ -91,7 +91,7 @@ class ProxyIdentityTrackerTests(unittest.TestCase):
             ):
                 session = Mock()
                 maybe_track_proxy_identity(
-                    transport="residential_proxy",
+                    transport="datacenter_proxy",
                     proxy_url="http://proxy.example:1234",
                     request_url="https://www.vinted.it/items/123",
                     session=session,

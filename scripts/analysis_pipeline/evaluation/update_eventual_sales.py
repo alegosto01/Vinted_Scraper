@@ -28,8 +28,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--api_token", default=None, help="Override API_TOKEN for rendered item-page fetches in this run")
     ap.add_argument("--max_workers", type=int, default=1)
     ap.add_argument("--delay", type=float, default=0.0, help="Delay between spawned status-check jobs")
-    ap.add_argument("--allow_residential_fallback", action="store_true", help="Allow residential fallback after rendered fetch failures")
-    ap.add_argument("--no_residential", action="store_true", help="Use only the datacenter proxy path and never the residential fallback")
     ap.add_argument("--initial_delay", type=float, default=0.0, help="Extra delay before each item-page check starts")
     ap.add_argument("--fetch_sleep", type=float, default=60.0, help="Sleep before each rendered item-page fetch attempt")
     ap.add_argument("--fetch_max_attempts", type=int, default=1, help="Max rendered fetch attempts per item-page check")
@@ -57,18 +55,16 @@ def main() -> None:
         top_n=args.top_n,
         require_deal_eligible=args.require_deal_eligible,
         sort_by=args.sort_by,
-        allow_residential_fallback=args.allow_residential_fallback,
         initial_delay=args.initial_delay,
         fetch_sleep=args.fetch_sleep,
         fetch_max_attempts=args.fetch_max_attempts,
-        no_residential=args.no_residential,
         recheck_sold_rows=args.recheck_sold_rows,
         exclude_known_sold_csv=args.exclude_known_sold_csv,
     )
     if not os.getenv("API_TOKEN"):
         result["warning"] = (
-            "API_TOKEN is not set for this process. Rendered-only eventual-sale checks will fail unless you pass "
-            "--allow_residential_fallback or configure API_TOKEN."
+            "API_TOKEN is not set for this process. Rendered eventual-sale checks will fall back to the "
+            "datacenter proxy; set API_TOKEN to use the rendered (Web Unlocker) path."
         )
     out_dir = Path(args.out_dir) if args.out_dir else Path(args.input).resolve().parent
     summary_path = out_dir / "eventual_sale_summary.json"

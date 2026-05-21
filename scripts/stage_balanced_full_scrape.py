@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.project_config import settings
-from full_scrape_sold_history import load_search_config_by_folder, normalize_id
+from full_scrape_sold_history import normalize_id
 from full_scraper import Full_Scraper
 
 
@@ -200,7 +200,6 @@ def process_batches(
     reason: str,
     batch_size: int,
     max_workers: int,
-    no_residential: bool,
     image_mode: str,
     output_subdir: str,
     pause_seconds: float,
@@ -215,7 +214,6 @@ def process_batches(
             search_name=search_name,
             reason=reason,
             max_workers=max_workers,
-            no_residential=no_residential,
             image_mode=image_mode,
             skip_existing=True,
             output_subdir=output_subdir,
@@ -235,7 +233,6 @@ def process_batches(
 
 def run(args: argparse.Namespace) -> int:
     scraper = Full_Scraper()
-    configs = load_search_config_by_folder()
     selected_dirs = search_dirs(args)
     if not selected_dirs:
         print("No per-search sold_df.csv files found.")
@@ -255,8 +252,6 @@ def run(args: argparse.Namespace) -> int:
 
     for search_dir in selected_dirs:
         search_name = search_dir.name
-        search_config = configs.get(search_name)
-        no_residential = bool(getattr(search_config, "no_residential", True))
 
         sold_pending, sold_stats = sold_pending_rows(
             scraper,
@@ -278,7 +273,6 @@ def run(args: argparse.Namespace) -> int:
                 reason="sold_backfill_stage",
                 batch_size=max(1, int(args.batch_size)),
                 max_workers=int(args.max_workers),
-                no_residential=no_residential,
                 image_mode=args.image_mode,
                 output_subdir=output_subdir,
                 pause_seconds=float(args.pause_seconds),
@@ -304,7 +298,6 @@ def run(args: argparse.Namespace) -> int:
                 reason="unsold_balance_stage",
                 batch_size=max(1, int(args.batch_size)),
                 max_workers=int(args.max_workers),
-                no_residential=no_residential,
                 image_mode=args.image_mode,
                 output_subdir=output_subdir,
                 pause_seconds=float(args.pause_seconds),
