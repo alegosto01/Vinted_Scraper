@@ -20,6 +20,8 @@ from experiments.deal_finder import (
     paper_trade_six_search_strict_hourly,
     paper_trading,
 )
+from experiments.basic_5_voting import run as basic_5_voting
+from experiments.basic_5_stacking import run as basic_5_stacking
 
 
 class DealFinderDatasetTests(unittest.TestCase):
@@ -208,6 +210,35 @@ class DealFinderModelSweepTests(unittest.TestCase):
             self.assertEqual(features["image_height"], 10.0)
             self.assertAlmostEqual(features["image_aspect_ratio"], 2.0)
             self.assertIn("image_brightness", features)
+
+
+class Basic5VotingTests(unittest.TestCase):
+    def test_accuracy_threshold_uses_validation_cutoff_with_best_accuracy(self):
+        labels = pd.Series([1, 1, 0, 0]).to_numpy()
+        scores = pd.Series([0.9, 0.8, 0.7, 0.1]).to_numpy()
+
+        threshold, accuracy = basic_5_voting.tune_accuracy_threshold(labels, scores)
+
+        self.assertEqual(threshold, 0.8)
+        self.assertEqual(accuracy, 1.0)
+        self.assertEqual(basic_5_voting.threshold_accuracy(labels, scores, threshold), 1.0)
+
+
+class Basic5StackingTests(unittest.TestCase):
+    def test_top_components_and_score_sum_use_validation_scores(self):
+        frame = pd.DataFrame(
+            {
+                "offline_sold_label": [1, 1, 0, 0],
+                "score__strong": [0.9, 0.8, 0.2, 0.1],
+                "score__weak": [0.1, 0.8, 0.7, 0.2],
+            }
+        )
+
+        self.assertEqual(basic_5_stacking.select_top_approaches(frame, ("weak", "strong"), 1), ("strong",))
+        self.assertEqual(
+            basic_5_stacking.component_score(frame, ("strong", "weak"), reducer="sum").tolist(),
+            [1.0, 1.6, 0.8999999999999999, 0.30000000000000004],
+        )
 
 
 class DealFinderPaperTradingTests(unittest.TestCase):

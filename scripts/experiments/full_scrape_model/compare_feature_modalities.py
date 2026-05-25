@@ -40,6 +40,27 @@ from experiments.full_scrape_model.paths import (
 DEFAULT_VISUAL_RUN = "sold_unsold_visuals_20260514_full"
 DEFAULT_EXCLUDED_SEARCHES = {"Borse_Griffate", "Scarpe_Griffate"}
 FEATURE_MODES = ("basic_5", "full_scrape", "full_scrape_plus_visual")
+EXPERIMENTAL_BASIC_APPROACHES = (
+    base_sweep.ApproachSpec(
+        "random_forest_basic_v1",
+        "random_forest",
+        "basic_random_forest_v1",
+        model_family="tree",
+    ),
+    base_sweep.ApproachSpec(
+        "hist_gradient_basic_numeric_v1",
+        "hist_gradient_boosting",
+        "basic_hist_gradient_numeric_v1",
+        use_text=False,
+        model_family="boosted_tree",
+    ),
+    base_sweep.ApproachSpec(
+        "xgboost_basic_v1",
+        "xgboost",
+        "basic_xgboost_v1",
+        model_family="boosted_tree",
+    ),
+)
 
 BASIC_NUMERIC = ["Price", "Likes"]
 BASIC_TEXT = ["Title", "Brand", "Size"]
@@ -458,16 +479,28 @@ def modality_comparison(best_by_search_mode: pd.DataFrame) -> pd.DataFrame:
 
 def write_report(run_dir: Path, metrics_df: pd.DataFrame, best_by_search_mode: pd.DataFrame, comparison: pd.DataFrame) -> Path:
     path = assert_experiment_path(run_dir / "feature_modality_report.md")
+    metric_modes = set(metrics_df.get("feature_mode", pd.Series(dtype=object)).dropna().astype(str))
+    report_modes = [mode for mode in FEATURE_MODES if mode in metric_modes] or list(FEATURE_MODES)
+    mode_descriptions = {
+        "basic_5": "`basic_5`: only `Title`, `Brand`, `Size`, `Price`, and `Likes` as source inputs.",
+        "full_scrape": "`full_scrape`: basic fields plus full item/seller metadata, without photo-arbitrage visual features.",
+        "full_scrape_plus_visual": (
+            "`full_scrape_plus_visual`: full-scrape fields plus photo-arbitrage numeric visual features "
+            "and DINO embedding dimensions when available."
+        ),
+    }
     lines = [
         "# Full Scrape Feature Modality Comparison",
         "",
         f"Run folder: `{run_dir}`",
         "",
-        "This compares the same sold-status model families across three input modes:",
+        (
+            "This compares the same sold-status model families across three input modes:"
+            if tuple(report_modes) == FEATURE_MODES
+            else "This evaluates the selected sold-status feature modes:"
+        ),
         "",
-        "- `basic_5`: only `Title`, `Brand`, `Size`, `Price`, and `Likes` as source inputs.",
-        "- `full_scrape`: basic fields plus full item/seller metadata, without photo-arbitrage visual features.",
-        "- `full_scrape_plus_visual`: full-scrape fields plus photo-arbitrage numeric visual features and DINO embedding dimensions when available.",
+        *[f"- {mode_descriptions[mode]}" for mode in report_modes],
         "",
         f"Trained rows: `{int((metrics_df['status'] == 'trained').sum()) if not metrics_df.empty else 0}`",
         "",
@@ -492,7 +525,8 @@ def write_report(run_dir: Path, metrics_df: pd.DataFrame, best_by_search_mode: p
                 f"{float(row.get('test_pr_auc', np.nan)):.3f} | "
                 f"{int(row.get('test_count', 0)) if pd.notna(row.get('test_count', np.nan)) else 0} |"
             )
-    if not best_by_search_mode.empty:
+    has_visual_pair = {"full_scrape", "full_scrape_plus_visual"}.issubset(metric_modes)
+    if not best_by_search_mode.empty and has_visual_pair:
         lines.extend(["", "## Visual Lift Summary", ""])
         for search, group in best_by_search_mode.groupby("search_name", sort=True):
             by_mode = group.set_index("feature_mode")
@@ -514,6 +548,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare basic, full-scrape, and full-scrape-plus-visual feature modes.")
     parser.add_argument("--all-searches", action="store_true")
     parser.add_argument("--search", action="append", default=[])
+    parser.add_argument(
+        "--feature-mode",
+        action="append",
+        choices=FEATURE_MODES,
+        default=[],
+        help="Optional feature mode filter; repeat to compare multiple modes.",
+    )
     parser.add_argument("--include-excluded-searches", action="store_true")
     parser.add_argument("--visual-run", default=DEFAULT_VISUAL_RUN)
     parser.add_argument("--out-dir", default=None)
@@ -549,8 +590,13 @@ def main() -> int:
 
     visual_path = visual_source_path(args.visual_run)
     visual = read_visual_features(visual_path, include_dino_embedding=args.include_dino_embedding)
+    feature_modes = tuple(dict.fromkeys(args.feature_mode or FEATURE_MODES))
+    available_approaches = [*base_sweep.APPROACHES, *EXPERIMENTAL_BASIC_APPROACHES]
     selected_names = set(args.approach or [spec.name for spec in base_sweep.APPROACHES])
-    approaches = [spec for spec in base_sweep.APPROACHES if spec.name in selected_names]
+    unknown_approaches = selected_names.difference(spec.name for spec in available_approaches)
+    if unknown_approaches:
+        raise SystemExit(f"Unknown approaches: {', '.join(sorted(unknown_approaches))}")
+    approaches = [spec for spec in available_approaches if spec.name in selected_names]
 
     searches = args.search or available_searches(TASK_SOLD_STATUS)
     if not args.include_excluded_searches:
@@ -588,7 +634,7 @@ def main() -> int:
             flush=True,
         )
         if len(merged) < 50 or merged[TARGET_COL].nunique() < 2:
-            for mode in FEATURE_MODES:
+            for mode in feature_modes:
                 for spec in approaches:
                     metrics.append(
                         {
@@ -601,7 +647,7 @@ def main() -> int:
                         }
                     )
             continue
-        for mode in FEATURE_MODES:
+        for mode in feature_modes:
             for spec in approaches:
                 started = time.perf_counter()
                 print(f"[feature_modalities] train search={search} mode={mode} approach={spec.name}", flush=True)
@@ -660,7 +706,7 @@ def main() -> int:
         extra=base_sweep.to_builtin(
             {
                 "task": TASK_SOLD_STATUS,
-                "feature_modes": FEATURE_MODES,
+                "feature_modes": feature_modes,
                 "searches": searches,
                 "excluded_searches": sorted(DEFAULT_EXCLUDED_SEARCHES if not args.include_excluded_searches else []),
                 "approaches": [spec.name for spec in approaches],

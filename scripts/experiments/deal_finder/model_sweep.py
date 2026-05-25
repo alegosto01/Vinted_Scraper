@@ -381,7 +381,7 @@ def build_preprocessor(numeric_features: list[str], text_features: list[str], *,
 
 def make_model(spec: ApproachSpec, numeric_features: list[str], text_features: list[str]):
     from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.ensemble import ExtraTreesClassifier
+    from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression, SGDClassifier
     from sklearn.pipeline import Pipeline
     from sklearn.svm import LinearSVC
@@ -399,6 +399,69 @@ def make_model(spec: ApproachSpec, numeric_features: list[str], text_features: l
                         n_estimators=120,
                         min_samples_leaf=4,
                         class_weight="balanced",
+                        random_state=DEFAULT_SEED,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        )
+    if spec.kind == "random_forest":
+        pre = build_preprocessor(numeric_features, text_features, scale_numeric=False)
+        return Pipeline(
+            [
+                ("features", pre),
+                (
+                    "model",
+                    RandomForestClassifier(
+                        n_estimators=240,
+                        max_depth=24,
+                        min_samples_leaf=3,
+                        class_weight="balanced_subsample",
+                        random_state=DEFAULT_SEED,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        )
+    if spec.kind == "hist_gradient_boosting":
+        pre = build_preprocessor(numeric_features, [], scale_numeric=False)
+        return Pipeline(
+            [
+                ("features", pre),
+                (
+                    "model",
+                    HistGradientBoostingClassifier(
+                        max_iter=180,
+                        learning_rate=0.06,
+                        max_leaf_nodes=15,
+                        min_samples_leaf=12,
+                        l2_regularization=0.1,
+                        random_state=DEFAULT_SEED,
+                    ),
+                ),
+            ]
+        )
+    if spec.kind == "xgboost":
+        try:
+            from xgboost import XGBClassifier
+        except ImportError as exc:
+            raise RuntimeError("The xgboost approach requires the optional `xgboost` package.") from exc
+        pre = build_preprocessor(numeric_features, text_features, scale_numeric=False)
+        return Pipeline(
+            [
+                ("features", pre),
+                (
+                    "model",
+                    XGBClassifier(
+                        n_estimators=220,
+                        max_depth=4,
+                        learning_rate=0.05,
+                        subsample=0.9,
+                        colsample_bytree=0.85,
+                        min_child_weight=2.0,
+                        reg_lambda=2.0,
+                        eval_metric="logloss",
+                        tree_method="hist",
                         random_state=DEFAULT_SEED,
                         n_jobs=-1,
                     ),
