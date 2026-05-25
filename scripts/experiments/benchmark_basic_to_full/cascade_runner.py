@@ -611,20 +611,30 @@ def update_outcome_windows(tracked: pd.DataFrame, idx: int, *, status: object, f
                 tracked.at[idx, out_col] = False
 
 
-def due_recheck_mask(tracked: pd.DataFrame, now: pd.Timestamp) -> pd.Series:
+def tracked_windows_up_to(max_age_hours: float | None = None) -> list[int]:
+    if max_age_hours is None:
+        return list(WINDOW_HOURS)
+    return [hours for hours in WINDOW_HOURS if float(hours) <= float(max_age_hours)]
+
+
+def due_recheck_mask(tracked: pd.DataFrame, now: pd.Timestamp, *, max_age_hours: float | None = None) -> pd.Series:
     if tracked.empty:
+        return pd.Series(False, index=tracked.index)
+    windows = tracked_windows_up_to(max_age_hours)
+    if not windows:
         return pd.Series(False, index=tracked.index)
     first = pd.to_datetime(tracked.get("first_stage1_pass_at"), errors="coerce", utc=True)
     last = pd.to_datetime(tracked.get("last_rechecked_at"), errors="coerce", utc=True)
     sold = pd.to_datetime(tracked.get("sold_at"), errors="coerce", utc=True)
     age = (now - first).dt.total_seconds() / 3600.0
     interval = first.map(lambda ts: current_recheck_interval_hours(ts, now=now))
-    no_longer_due = age.gt(max(WINDOW_HOURS))
+    age_limit = float(max(windows))
+    within_interval_horizon = age.le(age_limit)
     due_by_interval = last.isna() | ((now - last).dt.total_seconds() / 3600.0 >= interval)
     due_by_window = pd.Series(False, index=tracked.index)
-    for hours in WINDOW_HOURS:
+    for hours in windows:
         due_by_window |= first.notna() & tracked.get(evaluated_col(hours), pd.Series(pd.NA, index=tracked.index)).isna() & age.ge(float(hours))
-    return first.notna() & sold.isna() & ~no_longer_due & (due_by_interval | due_by_window)
+    return first.notna() & sold.isna() & ((within_interval_horizon & due_by_interval) | due_by_window)
 
 
 def append_rows(path: Path, rows: pd.DataFrame) -> None:
@@ -888,7 +898,13 @@ def run_collect_once(
     return result
 
 
-def run_recheck_due(*, out_dir: Path, dry_run: bool, max_workers: int = 3) -> dict[str, Any]:
+def run_recheck_due(
+    *,
+    out_dir: Path,
+    dry_run: bool,
+    max_workers: int = 3,
+    max_age_hours: float | None = None,
+) -> dict[str, Any]:
     ensure_experiment_dirs()
     out_dir = assert_experiment_path(out_dir)
     tracked_path = out_dir / STATE_FILE
@@ -898,8 +914,13 @@ def run_recheck_due(*, out_dir: Path, dry_run: bool, max_workers: int = 3) -> di
         write_json(out_dir / "latest_status.json", result)
         return result
     now = pd.Timestamp.now(tz="UTC")
-    due = tracked[due_recheck_mask(tracked, now)].copy()
-    result = {"run_dir": str(out_dir), "due_rows": int(len(due)), "dry_run": bool(dry_run)}
+    due = tracked[due_recheck_mask(tracked, now, max_age_hours=max_age_hours)].copy()
+    result = {
+        "run_dir": str(out_dir),
+        "due_rows": int(len(due)),
+        "dry_run": bool(dry_run),
+        "max_recheck_age_hours": None if max_age_hours is None else float(max_age_hours),
+    }
     if dry_run or due.empty:
         write_json(out_dir / "recheck_plan.json", result)
         return result
@@ -1074,6 +1095,7 @@ def parse_args() -> argparse.Namespace:
     recheck.add_argument("--out-dir", default=None)
     recheck.add_argument("--dry-run", action="store_true")
     recheck.add_argument("--max-workers", type=int, default=3)
+    recheck.add_argument("--max-recheck-age-hours", type=float, default=None, help="Stop interval rechecks after this item age while finishing due checkpoint windows up to the cap.")
 
     report = sub.add_parser("report")
     report.add_argument("--out-dir", default=None)
@@ -1089,6 +1111,8 @@ def parse_args() -> argparse.Namespace:
     loop.add_argument("--student-binary-target", type=int, default=DEFAULT_STUDENT_BINARY_TARGET)
     loop.add_argument("--search", action="append", default=[])
     loop.add_argument("--collect-every-hours", type=float, default=1.0)
+    loop.add_argument("--recheck-only", action="store_true", help="Skip new cascade collection and only recheck items already tracked in this run.")
+    loop.add_argument("--max-recheck-age-hours", type=float, default=None, help="Stop interval rechecks after this item age while finishing due checkpoint windows up to the cap.")
     loop.add_argument("--sleep-seconds", type=float, default=60.0)
     loop.add_argument("--max-stage1-items-per-search", type=int, default=None)
     loop.add_argument("--max-stage1-items-total", type=int, default=None)
@@ -1142,7 +1166,12 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.cmd == "recheck-due":
-        result = run_recheck_due(out_dir=resolve_out_dir(args.out_dir), dry_run=bool(args.dry_run), max_workers=args.max_workers)
+        result = run_recheck_due(
+            out_dir=resolve_out_dir(args.out_dir),
+            dry_run=bool(args.dry_run),
+            max_workers=args.max_workers,
+            max_age_hours=args.max_recheck_age_hours,
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.cmd == "report":
@@ -1154,7 +1183,9 @@ def main() -> int:
         last_collect: pd.Timestamp | None = None
         while True:
             now = pd.Timestamp.now(tz="UTC")
-            should_collect = last_collect is None or (now - last_collect).total_seconds() >= args.collect_every_hours * 3600.0
+            should_collect = not args.recheck_only and (
+                last_collect is None or (now - last_collect).total_seconds() >= args.collect_every_hours * 3600.0
+            )
             if should_collect:
                 run_collect_once(
                     out_dir=out_dir,
@@ -1179,7 +1210,7 @@ def main() -> int:
                     quality_device=args.quality_device,
                 )
                 last_collect = now
-            run_recheck_due(out_dir=out_dir, dry_run=False)
+            run_recheck_due(out_dir=out_dir, dry_run=False, max_age_hours=args.max_recheck_age_hours)
             generate_report(out_dir=out_dir)
             time.sleep(max(float(args.sleep_seconds), 5.0))
     return 0

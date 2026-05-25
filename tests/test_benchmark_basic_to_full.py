@@ -12,7 +12,13 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from experiments.benchmark_basic_to_full.cascade_runner import bool_series, merge_tracked
+from experiments.benchmark_basic_to_full.cascade_runner import (
+    bool_series,
+    due_recheck_mask,
+    evaluated_col,
+    merge_tracked,
+    tracked_windows_up_to,
+)
 
 
 class CascadeTrackedStateTests(unittest.TestCase):
@@ -74,6 +80,36 @@ class CascadeTrackedStateTests(unittest.TestCase):
 
         row = merged.loc[merged["tracking_key"] == "ps4::123"].iloc[0]
         self.assertFalse(bool(row["LegacyFlag"]))
+
+    def test_due_recheck_mask_drains_through_limited_terminal_window(self):
+        now = pd.Timestamp("2026-05-22T00:00:00+00:00")
+        prior_windows = {
+            evaluated_col(hours): "2026-05-21T12:00:00+00:00"
+            for hours in tracked_windows_up_to(72)
+            if hours < 72
+        }
+        tracked = pd.DataFrame(
+            [
+                {
+                    **prior_windows,
+                    "first_stage1_pass_at": "2026-05-18T23:59:00+00:00",
+                    "last_rechecked_at": "2026-05-21T12:00:00+00:00",
+                    "sold_at": pd.NA,
+                    evaluated_col(72): pd.NA,
+                },
+                {
+                    **prior_windows,
+                    "first_stage1_pass_at": "2026-05-18T23:59:00+00:00",
+                    "last_rechecked_at": "2026-05-21T12:00:00+00:00",
+                    "sold_at": pd.NA,
+                    evaluated_col(72): "2026-05-22T00:01:00+00:00",
+                },
+            ]
+        )
+
+        due = due_recheck_mask(tracked, now, max_age_hours=72)
+
+        self.assertEqual(due.tolist(), [True, False])
 
 
 if __name__ == "__main__":

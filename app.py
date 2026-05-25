@@ -26,7 +26,6 @@ CASCADE_PID = CASCADE_RUN / "runner.pid"
 CASCADE_MANIFEST = CASCADE_RUN / "manifest.json"
 
 CASCADE_RESULTS_RUNS = ROOT / "data" / "experiments" / "benchmark_basic_to_full" / "live_runs"
-BASIC_VISUAL_RESULTS_RUNS = ROOT / "data" / "experiments" / "basic_plus_visual" / "live_runs"
 
 TELEGRAM_EVENTS = ROOT / "data" / "telegram_implementation" / "events.jsonl"
 TELEGRAM_CACHE = ROOT / "data" / "telegram_implementation" / "pending_items"
@@ -178,48 +177,6 @@ def truthy_series(series: pd.Series | None, index: pd.Index) -> pd.Series:
     return series.fillna("").astype(str).str.strip().str.lower().isin({"true", "1", "1.0", "yes", "y"})
 
 
-def sold_status_series(df: pd.DataFrame) -> pd.Series:
-    statuses = pd.Series(False, index=df.index)
-    for col in ["LastCheckStatus", "last_recheck_status", "MarketStatus", "status", "_status"]:
-        if col in df.columns:
-            status = df[col].fillna("").astype(str).str.strip().str.lower()
-            statuses = statuses | status.isin({"sold", "venduto", "vendu"})
-    return statuses
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def load_basic_visual_first_sold_checks(run_dir_text: str) -> pd.DataFrame:
-    reports_dir = Path(run_dir_text) / "reports"
-    sold_checks = []
-    recheck_cols = {
-        "SearchName", "Dataid", "item_id", "Link", "LastCheckStatus",
-        "MarketStatus", "_last_checked_at", "rechecked_at",
-    }
-    for path in sorted(reports_dir.glob("recheck_*.csv")):
-        try:
-            recheck = pd.read_csv(path, low_memory=False, usecols=lambda c: c in recheck_cols)
-        except (FileNotFoundError, pd.errors.EmptyDataError, ValueError):
-            continue
-        if recheck.empty:
-            continue
-
-        recheck["_tracking_key"] = tracking_key(recheck)
-        recheck["_checked_at"] = first_present_datetime(recheck, ["_last_checked_at", "rechecked_at"])
-        recheck = recheck[sold_status_series(recheck) & recheck["_checked_at"].notna()]
-        if not recheck.empty:
-            sold_checks.append(recheck[["_tracking_key", "_checked_at"]])
-
-    if not sold_checks:
-        return pd.DataFrame(columns=["_tracking_key", "_sold_at"])
-
-    return (
-        pd.concat(sold_checks, ignore_index=True)
-        .groupby("_tracking_key", as_index=False)["_checked_at"]
-        .min()
-        .rename(columns={"_checked_at": "_sold_at"})
-    )
-
-
 def to_utc(series: pd.Series | None, index: pd.Index) -> pd.Series:
     if series is None:
         return pd.Series(pd.NaT, index=index, dtype="datetime64[ns, UTC]")
@@ -323,7 +280,7 @@ def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.
     unique["_sold_at"] = unique["_tracking_key"].map(sold_at_by_key)
 
     now = pd.Timestamp(_now_utc())
-    checkpoints = [1, 6, 12, 24, 30]
+    checkpoints = [1, 6, 12, 24, 30, 36, 39, 42, 45, 48, 60, 72]
     rows = []
     for search, group in unique.groupby("SearchName", dropna=False):
         passed = group[group["_stage2_passed"]]
@@ -348,7 +305,13 @@ def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.
 
     summary = pd.DataFrame(rows).sort_values("Search").reset_index(drop=True)
     stage2_passed = unique[unique["_stage2_passed"]].copy()
-    overall = precision_by_hour(stage2_passed, "_first_at", "_sold_at", now, [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36])
+    overall = precision_by_hour(
+        stage2_passed,
+        "_first_at",
+        "_sold_at",
+        now,
+        [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36, 39, 42, 45, 48, 60, 72],
+    )
     buckets = sold_hour_buckets(stage2_passed, "_first_at", "_sold_at")
 
     meta = {
@@ -356,125 +319,6 @@ def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.
         "unique_stage1_pass": int(len(unique)),
         "unique_stage2_pass": int(stage2_passed.shape[0]),
         "sold_stage2_pass": int(stage2_passed["_sold_at"].notna().sum()),
-        "updated_at": datetime.fromtimestamp(tracked_path.stat().st_mtime, tz=timezone.utc),
-    }
-    return summary, overall, buckets, meta
-
-
-def load_basic_visual_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    scored_dir = run_dir / "scored_items"
-    tracked_path = run_dir / "tracked_items.csv"
-    if not scored_dir.exists():
-        raise FileNotFoundError(f"{scored_dir} not found")
-    if not tracked_path.exists():
-        raise FileNotFoundError(f"{tracked_path} not found")
-
-    score_cols = {"SearchName", "Dataid", "item_id", "Link", "snapshot_at", "SoldProba", "SoldPred", "SoldThreshold"}
-    score_frames = []
-    for path in sorted(scored_dir.glob("*.csv")):
-        chunk = pd.read_csv(path, low_memory=False, usecols=lambda c: c in score_cols)
-        if not chunk.empty:
-            score_frames.append(chunk)
-    if score_frames:
-        scored = pd.concat(score_frames, ignore_index=True)
-    else:
-        scored = pd.DataFrame(columns=list(score_cols))
-
-    if not scored.empty:
-        scored["_tracking_key"] = tracking_key(scored)
-        scored["_score"] = pd.to_numeric(scored.get("SoldProba"), errors="coerce")
-        scored["_threshold"] = pd.to_numeric(scored.get("SoldThreshold"), errors="coerce")
-        pred = truthy_series(scored.get("SoldPred"), scored.index)
-        scored["_passed"] = pred | (scored["_score"] >= scored["_threshold"])
-        scored["_snapshot_at"] = first_present_datetime(scored, ["snapshot_at"])
-        unique_scored = scored.sort_values(["_tracking_key", "_score"], ascending=[True, False]).drop_duplicates("_tracking_key")
-        pass_rows = scored[scored["_passed"]].copy()
-        first_pass_by_key = pass_rows.groupby("_tracking_key")["_snapshot_at"].min()
-        passed_keys = set(pass_rows["_tracking_key"])
-    else:
-        unique_scored = scored.copy()
-        first_pass_by_key = pd.Series(dtype="datetime64[ns, UTC]")
-        passed_keys = set()
-
-    track_cols = {
-        "SearchName", "Dataid", "item_id", "Link", "snapshot_at", "SoldProba", "SoldPred",
-        "SoldThreshold", "_tracked_at", "_last_checked_at", "LastCheckStatus", "MarketStatus", "sold_at",
-    }
-    tracked = pd.read_csv(tracked_path, low_memory=False, usecols=lambda c: c in track_cols)
-    if not tracked.empty:
-        tracked["_tracking_key"] = tracking_key(tracked)
-        tracked["_score"] = pd.to_numeric(tracked.get("SoldProba"), errors="coerce")
-        tracked["_threshold"] = pd.to_numeric(tracked.get("SoldThreshold"), errors="coerce")
-        tracked["_tracked_at_raw"] = first_present_datetime(tracked, ["_tracked_at", "snapshot_at"])
-        tracked["_checked_at_raw"] = first_present_datetime(tracked, ["_last_checked_at"])
-        tracked["_sold_at_raw"] = first_present_datetime(tracked, ["sold_at"])
-        tracked["_sold_now"] = sold_status_series(tracked) | tracked["_sold_at_raw"].notna()
-
-        first_tracked_by_key = tracked.groupby("_tracking_key")["_tracked_at_raw"].min()
-        last_checked_by_key = tracked.groupby("_tracking_key")["_checked_at_raw"].max()
-        current_sold_by_key = tracked[tracked["_sold_now"]].groupby("_tracking_key")["_checked_at_raw"].min()
-        history_sold = load_basic_visual_first_sold_checks(str(run_dir))
-        if history_sold.empty:
-            sold_at_by_key = current_sold_by_key
-        else:
-            history_sold_by_key = history_sold.set_index("_tracking_key")["_sold_at"]
-            sold_at_by_key = (
-                pd.concat([current_sold_by_key, history_sold_by_key])
-                .groupby(level=0)
-                .min()
-            )
-
-        tracked_unique = (
-            tracked.sort_values(["_tracking_key", "_checked_at_raw", "_score"], ascending=[True, False, False])
-            .drop_duplicates("_tracking_key", keep="first")
-            .copy()
-        )
-        tracked_unique["_start_at"] = tracked_unique["_tracking_key"].map(first_pass_by_key)
-        tracked_unique["_start_at"] = tracked_unique["_start_at"].fillna(tracked_unique["_tracking_key"].map(first_tracked_by_key))
-        tracked_unique["_last_checked_at"] = tracked_unique["_tracking_key"].map(last_checked_by_key)
-        tracked_unique["_sold_at"] = tracked_unique["_tracking_key"].map(sold_at_by_key)
-        tracked_unique["_sold_at"] = tracked_unique["_sold_at"].fillna(tracked_unique["_sold_at_raw"])
-    else:
-        tracked_unique = tracked.copy()
-        tracked_unique["_tracking_key"] = pd.Series(dtype=str)
-        tracked_unique["_start_at"] = pd.Series(dtype="datetime64[ns, UTC]")
-        tracked_unique["_sold_at"] = pd.Series(dtype="datetime64[ns, UTC]")
-
-    now = pd.Timestamp(_now_utc())
-    checkpoints = [1, 6, 12, 24]
-    rows = []
-    searches = sorted(set(unique_scored.get("SearchName", pd.Series(dtype=str)).dropna()) | set(tracked_unique.get("SearchName", pd.Series(dtype=str)).dropna()))
-    for search in searches:
-        scored_group = unique_scored[unique_scored["SearchName"] == search] if "SearchName" in unique_scored.columns else pd.DataFrame()
-        pass_count = int(scored_group["_tracking_key"].isin(passed_keys).sum()) if "_tracking_key" in scored_group.columns else 0
-        tracked_group = tracked_unique[tracked_unique["SearchName"] == search] if "SearchName" in tracked_unique.columns else pd.DataFrame()
-        row = {
-            "Search": search,
-            "Threshold": threshold_value(scored_group, "SoldThreshold"),
-            "Unique scored": int(len(scored_group)),
-            "Threshold pass": pass_count,
-            "Tracked": int(len(tracked_group)),
-            "Sold": int(tracked_group["_sold_at"].notna().sum()) if "_sold_at" in tracked_group.columns else 0,
-        }
-
-        elapsed_to_now = (now - tracked_group["_start_at"]).dt.total_seconds() / 3600 if not tracked_group.empty else pd.Series(dtype=float)
-        sold_elapsed = (tracked_group["_sold_at"] - tracked_group["_start_at"]).dt.total_seconds() / 3600 if not tracked_group.empty else pd.Series(dtype=float)
-        for hour in checkpoints:
-            matured = tracked_group[tracked_group["_start_at"].notna() & (elapsed_to_now >= hour)] if not tracked_group.empty else tracked_group
-            sold = matured[matured["_sold_at"].notna() & (sold_elapsed.loc[matured.index] <= hour)] if not matured.empty else matured
-            row[f"{hour}h"] = precision_cell(int(len(sold)), int(len(matured)))
-        rows.append(row)
-
-    summary = pd.DataFrame(rows).sort_values("Search").reset_index(drop=True)
-    overall = precision_by_hour(tracked_unique, "_start_at", "_sold_at", now, [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36])
-    buckets = sold_hour_buckets(tracked_unique, "_start_at", "_sold_at")
-
-    meta = {
-        "scored_rows": int(len(scored)),
-        "unique_scored": int(len(unique_scored)),
-        "unique_threshold_pass": int(len(passed_keys)),
-        "unique_tracked": int(len(tracked_unique)),
-        "tracked_sold": int(tracked_unique["_sold_at"].notna().sum()) if "_sold_at" in tracked_unique.columns else 0,
         "updated_at": datetime.fromtimestamp(tracked_path.stat().st_mtime, tz=timezone.utc),
     }
     return summary, overall, buckets, meta
@@ -715,31 +559,17 @@ with tab_bench:
 
 with tab_results:
     cascade_runs = list_live_runs(CASCADE_RESULTS_RUNS, "cascade")
-    basic_runs = list_live_runs(BASIC_VISUAL_RESULTS_RUNS, "basic_plus_visual")
 
     if not cascade_runs:
         st.warning("No cascade live runs found.")
-    if not basic_runs:
-        st.warning("No Basic + Visual live runs found.")
-
-    if cascade_runs and basic_runs:
-        select_col1, select_col2 = st.columns(2)
-        with select_col1:
-            cascade_run = st.selectbox(
-                "Cascade run",
-                cascade_runs,
-                index=0,
-                format_func=lambda p: p.name,
-                key="model_results_cascade_run",
-            )
-        with select_col2:
-            basic_run = st.selectbox(
-                "Basic + Visual run",
-                basic_runs,
-                index=0,
-                format_func=lambda p: p.name,
-                key="model_results_basic_visual_run",
-            )
+    else:
+        cascade_run = st.selectbox(
+            "Cascade run",
+            cascade_runs,
+            index=0,
+            format_func=lambda p: p.name,
+            key="model_results_cascade_run",
+        )
 
         st.divider()
         render_model_results_section(
@@ -751,20 +581,6 @@ with tab_results:
                 ("S2 pass", "unique_stage2_pass"),
                 ("S2 sold", "sold_stage2_pass"),
                 ("Tracked rows", "tracked_rows"),
-            ],
-        )
-
-        st.divider()
-        render_model_results_section(
-            "Basic + Visual",
-            basic_run,
-            load_basic_visual_results,
-            [
-                ("Unique scored", "unique_scored"),
-                ("Threshold pass", "unique_threshold_pass"),
-                ("Tracked", "unique_tracked"),
-                ("Sold", "tracked_sold"),
-                ("Scored rows", "scored_rows"),
             ],
         )
 

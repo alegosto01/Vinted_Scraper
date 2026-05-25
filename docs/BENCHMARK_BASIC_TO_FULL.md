@@ -162,10 +162,29 @@ Generate report:
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py report --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live
 ```
 
+Plot the live stage-1 and stage-2 score distributions for sold vs unsold items
+that have matured through a checkpoint:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/report_live_score_distributions.py --run-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --window-hours 24
+```
+
+The distribution report writes a single figure with both model score columns and
+their effective per-search thresholds under the selected run's `reports/`
+folder. Use `--all-observed` only when "not sold yet" rows are acceptable
+instead of a matured checkpoint cohort.
+
 Run scheduled loop:
 
 ```bash
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --collect-every-hours 1
+```
+
+Drain an existing live run without collecting new items, and stop rechecking
+after the `72h` checkpoint has been filled:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --recheck-only --max-recheck-age-hours 72
 ```
 
 The default `run-loop` now uses the teacher-student first stage with a precision objective. To restart with the precision student explicitly, use:
