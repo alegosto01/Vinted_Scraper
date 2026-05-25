@@ -26,6 +26,7 @@ CASCADE_PID = CASCADE_RUN / "runner.pid"
 CASCADE_MANIFEST = CASCADE_RUN / "manifest.json"
 
 CASCADE_RESULTS_RUNS = ROOT / "data" / "experiments" / "benchmark_basic_to_full" / "live_runs"
+TIME_TO_SELL_LIVE_RUNS = ROOT / "data" / "experiments" / "time_to_sell" / "live_runs"
 
 TELEGRAM_EVENTS = ROOT / "data" / "telegram_implementation" / "events.jsonl"
 TELEGRAM_CACHE = ROOT / "data" / "telegram_implementation" / "pending_items"
@@ -64,6 +65,15 @@ def pid_alive(pid_file: Path) -> bool:
         os.kill(pid, 0)
         return True
     except (OSError, ValueError, ProcessLookupError):
+        return False
+
+
+def pid_number_alive(pid: object) -> bool:
+    try:
+        pid_int = int(pid)
+        os.kill(pid_int, 0)
+        return True
+    except (OSError, ValueError, TypeError, ProcessLookupError):
         return False
 
 
@@ -382,6 +392,138 @@ def render_model_results_section(
         st.dataframe(buckets, width="stretch", hide_index=True)
 
 
+def value_counts_frame(df: pd.DataFrame, column: str, label: str) -> pd.DataFrame:
+    if df.empty or column not in df.columns:
+        return pd.DataFrame(columns=[label, "Count"])
+    return (
+        df[column]
+        .fillna("missing")
+        .astype(str)
+        .value_counts(dropna=False)
+        .rename_axis(label)
+        .reset_index(name="Count")
+    )
+
+
+def log_issue_counts(path: Path) -> dict[str, int]:
+    if not path.exists():
+        return {}
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except Exception:
+        return {}
+    needles = ["Traceback", "Exception", "Error", "429", "failed", "FetchFailed", "killed"]
+    return {needle: sum(needle.lower() in line.lower() for line in lines) for needle in needles}
+
+
+def load_time_to_sell_collector(run_dir: Path) -> dict:
+    tracked = read_csv_safe(run_dir / "tracked_items.csv")
+    if tracked is None:
+        tracked = pd.DataFrame()
+    status = read_json_safe(run_dir / "latest_status.json") or {}
+    daemon = read_json_safe(run_dir / "daemon.json") or {}
+    manifest = read_json_safe(run_dir / "manifest.json") or {}
+    plan = read_csv_safe(run_dir / "collector_plan.csv")
+    balance = read_csv_safe(run_dir / "reports" / "bin_balance.csv")
+    failures = read_csv_safe(run_dir / "full_items" / "full_scrape_failures.csv")
+    events_path = run_dir / "events.jsonl"
+    log_path = run_dir / "collector.log"
+
+    if "sold_at" in tracked.columns:
+        sold = pd.to_datetime(tracked["sold_at"], errors="coerce", utc=True).notna()
+    else:
+        sold = pd.Series(False, index=tracked.index)
+
+    cohort_counts = (
+        tracked.get("cohort", pd.Series(index=tracked.index, dtype=object))
+        .fillna("missing")
+        .astype(str)
+        .value_counts()
+        .to_dict()
+    )
+    high_rows = int(cohort_counts.get("high_score_candidate", 0))
+    low_rows = int(cohort_counts.get("low_score_control", 0))
+
+    full_counts = (
+        tracked.get("FullScrapeStatus", pd.Series(index=tracked.index, dtype=object))
+        .fillna("missing")
+        .astype(str)
+        .value_counts()
+        .to_dict()
+    )
+    quality_counts = (
+        tracked.get("QualityMethodStatus", pd.Series(index=tracked.index, dtype=object))
+        .fillna("missing")
+        .astype(str)
+        .value_counts()
+        .to_dict()
+    )
+
+    selected_at = pd.to_datetime(tracked.get("selected_at"), errors="coerce", utc=True) if "selected_at" in tracked.columns else pd.Series(pd.NaT, index=tracked.index)
+    rechecked_at = pd.to_datetime(tracked.get("last_rechecked_at"), errors="coerce", utc=True) if "last_rechecked_at" in tracked.columns else pd.Series(pd.NaT, index=tracked.index)
+    pid = daemon.get("pid") or status.get("pid")
+
+    return {
+        "tracked": tracked,
+        "status": status,
+        "daemon": daemon,
+        "manifest": manifest,
+        "plan": plan if plan is not None else pd.DataFrame(),
+        "balance": balance if balance is not None else pd.DataFrame(),
+        "failures": failures if failures is not None else pd.DataFrame(),
+        "running": pid_number_alive(pid),
+        "pid": pid,
+        "log_path": log_path,
+        "events_path": events_path,
+        "log_counts": log_issue_counts(log_path),
+        "meta": {
+            "tracked_rows": int(len(tracked)),
+            "high_rows": high_rows,
+            "low_rows": low_rows,
+            "sold_rows": int(sold.sum()),
+            "full_success": int(full_counts.get("success", 0)),
+            "full_pending": int(full_counts.get("pending", 0)),
+            "full_failed": int(full_counts.get("failed", 0)),
+            "quality_success": int(quality_counts.get("success", 0)),
+            "quality_pending": int(quality_counts.get("pending", 0)),
+            "latest_selected_at": selected_at.max() if len(selected_at) else pd.NaT,
+            "latest_rechecked_at": rechecked_at.max() if len(rechecked_at) else pd.NaT,
+            "events_rows": count_csv_rows(events_path) if events_path.exists() else "—",
+        },
+    }
+
+
+def per_search_collector_summary(tracked: pd.DataFrame) -> pd.DataFrame:
+    if tracked.empty or "SearchName" not in tracked.columns:
+        return pd.DataFrame()
+    work = tracked.copy()
+    sold_source = work["sold_at"] if "sold_at" in work.columns else pd.Series(pd.NA, index=work.index)
+    full_source = work["FullScrapeStatus"] if "FullScrapeStatus" in work.columns else pd.Series(pd.NA, index=work.index)
+    work["_sold"] = pd.to_datetime(sold_source, errors="coerce", utc=True).notna()
+    work["_full_success"] = full_source.fillna("").astype(str).eq("success")
+    if "tracking_key" not in work.columns:
+        work["tracking_key"] = tracking_key(work)
+    pivot = work.pivot_table(index="SearchName", columns="cohort", values="tracking_key", aggfunc="count", fill_value=0)
+    for col in ["high_score_candidate", "low_score_control"]:
+        if col not in pivot.columns:
+            pivot[col] = 0
+    extra = work.groupby("SearchName").agg(
+        Tracked=("tracking_key", "count"),
+        Sold=("_sold", "sum"),
+        FullScrapeSuccess=("_full_success", "sum"),
+    )
+    out = extra.join(pivot[["high_score_candidate", "low_score_control"]]).reset_index()
+    out = out.rename(
+        columns={
+            "SearchName": "Search",
+            "high_score_candidate": "High score",
+            "low_score_control": "Low score",
+            "FullScrapeSuccess": "Full scrape success",
+        }
+    )
+    return out.sort_values("Search").reset_index(drop=True)
+
+
 # ── page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Vinted Monitor", layout="wide")
@@ -405,9 +547,10 @@ show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 PHOTO_DATASET = ROOT / "data" / "experiments" / "photo_arbitrage" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
 PHOTO_LABELS = ROOT / "data" / "experiments" / "photo_arbitrage" / "labels" / "photo_quality_labels.csv"
 
-tab_scrape, tab_bench, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
+tab_scrape, tab_bench, tab_tts, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
     "Live Scraping",
     "Benchmark (Cascade)",
+    "Time-to-Sell Collector",
     "Model Results",
     "Eventual Sales",
     "Telegram",
@@ -554,7 +697,201 @@ with tab_bench:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Model Results
+# TAB 3 — Time-to-Sell Collector
+# ════════════════════════════════════════════════════════════════════════════
+
+with tab_tts:
+    collector_runs = list_live_runs(TIME_TO_SELL_LIVE_RUNS, "bin_collector")
+
+    if not collector_runs:
+        st.warning("No time-to-sell collector runs found.")
+    else:
+        collector_run = st.selectbox(
+            "Collector run",
+            collector_runs,
+            index=0,
+            format_func=lambda p: p.name,
+            key="time_to_sell_collector_run",
+        )
+        collector = load_time_to_sell_collector(collector_run)
+        tracked = collector["tracked"]
+        meta = collector["meta"]
+        status = collector["status"]
+        daemon = collector["daemon"]
+        plan = collector["plan"]
+        balance = collector["balance"]
+        failures = collector["failures"]
+
+        latest_activity_age = min(
+            file_age(collector_run / "tracked_items.csv"),
+            file_age(collector_run / "collector.log"),
+            file_age(collector_run / "latest_status.json"),
+        )
+        status_row(
+            "Time-to-Sell Collector",
+            collector["running"],
+            f"{age_str(latest_activity_age)} · PID {collector.get('pid', '—')}",
+        )
+
+        st.caption(f"Run: `{collector_run.relative_to(ROOT)}`")
+        if daemon.get("started_at"):
+            st.caption(f"Daemon started: `{daemon.get('started_at')}`")
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("Tracked", f"{meta['tracked_rows']:,}")
+        m2.metric("High score", f"{meta['high_rows']:,}")
+        m3.metric("Low score", f"{meta['low_rows']:,}")
+        m4.metric("Sold detected", f"{meta['sold_rows']:,}")
+        m5.metric("Full scrape OK", f"{meta['full_success']:,}")
+        m6.metric("Pending / failed", f"{meta['full_pending']:,} / {meta['full_failed']:,}")
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Last status", status.get("status", "—"))
+        s2.metric("Due rows", status.get("due_rows", "—"))
+        s3.metric("Checked rows", status.get("checked_rows", "—"))
+        s4.metric("Max recheck age", status.get("max_recheck_age_hours", daemon.get("max_recheck_age_hours", "72")))
+
+        if pd.notna(meta["latest_selected_at"]):
+            st.caption(f"Latest selected item: `{meta['latest_selected_at']}`")
+        if pd.notna(meta["latest_rechecked_at"]):
+            st.caption(f"Latest recheck: `{meta['latest_rechecked_at']}`")
+
+        with st.expander("Collector command and model plan", expanded=False):
+            command = daemon.get("command")
+            if command:
+                st.code(" ".join(map(str, command)), language="bash")
+            if not plan.empty:
+                st.dataframe(plan, width="stretch", hide_index=True)
+
+        st.subheader("Per-search collection")
+        per_search = per_search_collector_summary(tracked)
+        if per_search.empty:
+            st.info("No tracked rows yet.")
+        else:
+            st.dataframe(per_search, width="stretch", hide_index=True)
+
+        st.subheader("Bin balance")
+        if balance.empty:
+            st.info("No bin-balance report yet. It appears after the first report pass.")
+        else:
+            available_windows = sorted(pd.to_numeric(balance.get("hours"), errors="coerce").dropna().astype(int).unique())
+            default_windows = [h for h in [1, 12, 24, 48, 72] if h in available_windows] or available_windows[:5]
+            selected_windows = st.multiselect(
+                "Windows",
+                options=available_windows,
+                default=default_windows,
+                key="tts_balance_windows",
+            )
+            balance_show = balance[pd.to_numeric(balance["hours"], errors="coerce").isin(selected_windows)].copy()
+            readiness = (
+                balance_show.groupby(["window", "hours"], dropna=False)[
+                    ["high_sold", "low_unsold", "balanced_ready_pairs", "control_deficit"]
+                ]
+                .sum()
+                .reset_index()
+                .sort_values("hours")
+            )
+            st.markdown("**Dataset readiness by window**")
+            st.dataframe(readiness, width="stretch", hide_index=True)
+            st.markdown("**Per-search balance**")
+            balance_cols = [
+                "SearchName",
+                "window",
+                "high_tracked",
+                "low_tracked",
+                "high_evaluated",
+                "high_sold",
+                "low_evaluated",
+                "low_unsold",
+                "balanced_ready_pairs",
+                "control_deficit",
+            ]
+            st.dataframe(
+                balance_show[[c for c in balance_cols if c in balance_show.columns]],
+                width="stretch",
+                hide_index=True,
+            )
+
+        st.subheader("Scrape health")
+        h1, h2, h3 = st.columns(3)
+        h1.dataframe(value_counts_frame(tracked, "FullScrapeStatus", "Full scrape"), width="stretch", hide_index=True)
+        h2.dataframe(value_counts_frame(tracked, "QualityMethodStatus", "Visual features"), width="stretch", hide_index=True)
+        log_counts = pd.DataFrame(
+            [{"Log signal": key, "Count": value} for key, value in collector["log_counts"].items()]
+        )
+        h3.dataframe(log_counts, width="stretch", hide_index=True)
+
+        if not failures.empty:
+            with st.expander(f"Full-scrape failures ({len(failures)})", expanded=False):
+                fail_cols = [
+                    "SearchName",
+                    "cohort",
+                    "Title",
+                    "Brand",
+                    "Price",
+                    "FullScrapeError",
+                    "FullScrapedAt",
+                    "Link",
+                ]
+                fail_show = failures[[c for c in fail_cols if c in failures.columns]].tail(50)
+                st.dataframe(
+                    fail_show,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={"Link": st.column_config.LinkColumn("Link", display_text="Open")} if "Link" in fail_show.columns else None,
+                )
+
+        st.subheader("Tracked items")
+        if tracked.empty:
+            st.info("No tracked rows yet.")
+        else:
+            tshow = tracked.copy()
+            search_options = sorted(tshow["SearchName"].dropna().astype(str).unique()) if "SearchName" in tshow.columns else []
+            cohort_options = sorted(tshow["cohort"].dropna().astype(str).unique()) if "cohort" in tshow.columns else []
+            c1, c2, c3 = st.columns(3)
+            chosen_searches = c1.multiselect("Search", search_options, default=[], key="tts_item_search")
+            chosen_cohorts = c2.multiselect("Cohort", cohort_options, default=[], key="tts_item_cohort")
+            status_filter = c3.selectbox("Full scrape", ["All", "success", "pending", "failed"], key="tts_item_full_status")
+            if chosen_searches:
+                tshow = tshow[tshow["SearchName"].astype(str).isin(chosen_searches)]
+            if chosen_cohorts:
+                tshow = tshow[tshow["cohort"].astype(str).isin(chosen_cohorts)]
+            if status_filter != "All" and "FullScrapeStatus" in tshow.columns:
+                tshow = tshow[tshow["FullScrapeStatus"].fillna("").astype(str) == status_filter]
+            item_cols = [
+                "SearchName",
+                "cohort",
+                "Title",
+                "Brand",
+                "Price",
+                "Likes",
+                "Stage1Model",
+                "Stage1Score",
+                "Stage1Rank",
+                "FullScrapeStatus",
+                "QualityMethodStatus",
+                "last_recheck_status",
+                "sold_at",
+                "selected_at",
+                "Link",
+            ]
+            item_show = tshow[[c for c in item_cols if c in tshow.columns]].tail(300)
+            st.dataframe(
+                item_show,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Link": st.column_config.LinkColumn("Link", display_text="Open"),
+                    "Stage1Score": st.column_config.NumberColumn("Stage1Score", format="%.4f"),
+                },
+            )
+
+        with st.expander("Collector log tail", expanded=False):
+            st.code(tail_log(collector["log_path"], log_lines), language=None)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Model Results
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_results:
