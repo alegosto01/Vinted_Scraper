@@ -20,6 +20,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/caveman/caveman-mode-tracker.js\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
