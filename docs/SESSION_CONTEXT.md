@@ -1,10 +1,12 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Session Context
 
-This file is the handoff note for long Codex conversations. Use it when a chat is getting too long or before starting a risky/large phase.
+File = handoff note for long Codex chats. Use when chat too long or before risky/big phase.
 
 ## How To Resume
 
-In a new chat, start with:
+New chat, start with:
 
 ```text
 Read docs/SESSION_CONTEXT.md first, then continue from the current project state.
@@ -13,38 +15,38 @@ Do not delete existing data, do not edit private config files, and preserve runn
 
 ## Manual Context
 
-Update this section manually when project goals, decisions, or unfinished tasks change.
+Update section by hand when goals, decisions, or unfinished tasks change.
 
 ### Current Goals
 
-- Continue the Vinted deal-finder work using local historical data and public listing snapshots.
-- Keep deal-finder experiment outputs under `data/experiments/deal_finder/`.
-- Continue the photo-improvement track under `data/experiments/photo_arbitrage/`.
-- Preserve production data and private configuration files.
+- Keep Vinted deal-finder work using local historical data + public listing snapshots.
+- Deal-finder experiment outputs go `data/experiments/deal_finder/`.
+- Photo-improvement track go `data/experiments/photo_arbitrage/`.
+- Preserve prod data + private config files.
 
 ### Active Work
 
-- Normal scraping may be running through `scripts/main.py`.
-- Full item/seller enrichment may be running through `scripts/stage_balanced_full_scrape.py`.
-- Photo visual scoring may be running through `scripts/experiments/photo_arbitrage/score_sold_unsold_visuals.py`.
+- Normal scraping maybe running via `scripts/main.py`.
+- Full item/seller enrichment maybe running via `scripts/stage_balanced_full_scrape.py`.
+- Photo visual scoring maybe running via `scripts/experiments/current/photo_arbitrage/score_sold_unsold_visuals.py`.
 
 ### Important Safety Rules
 
-- Do not delete existing data.
-- Do not edit `.env`, credentials, private config, or account settings.
-- Do not make purchases, send messages, contact sellers, or perform account actions.
-- Avoid overwriting production CSVs unless Ale explicitly approves it.
-- Keep prompt wording focused on local data analysis, ranking, experiments, and public listing snapshots.
+- No delete existing data.
+- No edit `.env`, creds, private config, account settings.
+- No purchases, messages, seller contact, account actions.
+- No overwrite prod CSVs unless Ale say yes.
+- Keep prompts on local data analysis, ranking, experiments, public snapshots.
 
 ### Current Conversation Notes
 
-- The deal-finder track has offline and paper-trading experiment tooling under `scripts/experiments/deal_finder/`.
-- The photo-improvement track has visual scoring tooling under `scripts/experiments/photo_arbitrage/`.
-- DINOv3 access was fixed for `facebook/dinov3-vits16-pretrain-lvd1689m`.
-- DINOv3 currently saves `DinoEmbedding`, `DinoEmbeddingDim`, `DinoEmbeddingNorm`, and `DinoOutlierScore`.
-- The balanced sold/unsold visual scoring run is intended to cover six searches: `griffati_donna_all`, `griffati_uomo_all`, `gucci`, `nike`, `prada`, and `ps4`.
-- The visual scoring run excludes `Borse_Griffate` and `Scarpe_Griffate`.
-- The visual scoring output run name is `sold_unsold_visuals_20260514_full`.
+- Deal-finder track has offline + paper-trading tooling in `scripts/experiments/current/deal_finder/`.
+- Photo-improvement track has visual scoring tooling in `scripts/experiments/current/photo_arbitrage/`.
+- DINOv3 access fixed for `facebook/dinov3-vits16-pretrain-lvd1689m`.
+- DINOv3 now saves `DinoEmbedding`, `DinoEmbeddingDim`, `DinoEmbeddingNorm`, `DinoOutlierScore`.
+- Balanced sold/unsold visual scoring run covers six searches: `griffati_donna_all`, `griffati_uomo_all`, `gucci`, `nike`, `prada`, `ps4`.
+- Visual scoring run excludes `Borse_Griffate` + `Scarpe_Griffate`.
+- Visual scoring output run name: `sold_unsold_visuals_20260514_full`.
 
 ### Next Recommended Prompt
 
@@ -212,6 +214,3 @@ find data/experiments -type f -mmin -120 | sort
 ```
 
 <!-- AUTO_SNAPSHOT_END -->
-
-
-

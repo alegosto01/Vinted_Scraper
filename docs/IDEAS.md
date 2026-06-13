@@ -1,14 +1,16 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Ideas
 
-This file is a loose notebook for project ideas, experiments, questions, and future improvements.
+Loose notebook for ideas, experiments, questions, future improvements.
 
-It does not need to be perfectly clean. The point is to avoid losing thoughts.
+No need clean. Point: no lose thought.
 
-When an idea becomes a real project rule or workflow, move it into the correct structured doc.
+Idea become real rule/workflow → move to structured doc.
 
 ## Deal Ranking
 
-Possible future ranking signals:
+Future ranking signals:
 
 - Seller reliability.
 - Seller review count.
@@ -18,43 +20,43 @@ Possible future ranking signals:
 - Interested count.
 - View-to-interest ratio.
 - Image quality.
-- Brand/category-specific pricing behavior.
+- Brand/category pricing behavior.
 
 ## Second Project Track: Photo-Improvement Arbitrage
 
 Idea:
 
-- Look for listings where the item may be valuable or desirable, but the listing photos are very poor.
-- The opportunity is not only "this will sell fast now", but "this could sell better after buying it, improving presentation, and relisting with better photos".
-- Build a visual model that scores photo quality and detects listings with bad presentation.
-- Combine photo-quality score with item/value signals so the project finds items that are both under-presented and commercially interesting.
+- Find listings: item maybe valuable but photos bad.
+- Opportunity: not just "sell fast now" but "buy, fix photos, relist better".
+- Build vision model: score photo quality, detect bad presentation.
+- Combine photo score + value signals → find under-presented but commercially good items.
 
-Possible model direction:
+Model direction:
 
-- Use a vision foundation model such as DINOv3 or DINOv2 to create image embeddings.
-- Train a lightweight classifier or regressor on top of those embeddings to predict "bad listing photos" vs "good listing photos".
-- Add simple image-quality metrics too: brightness, blur, contrast, saturation, resolution, aspect ratio, clutter, number of photos, and whether the item is clearly visible.
-- Consider a separate aesthetic-quality model such as CLIP/LAION-style aesthetic scoring as a baseline, but adapt it to marketplace photos because "beautiful photo" and "useful selling photo" are not exactly the same thing.
+- Use vision foundation model (DINOv3/DINOv2) for image embeddings.
+- Train light classifier/regressor on embeddings → predict bad vs good listing photos.
+- Add simple metrics: brightness, blur, contrast, saturation, resolution, aspect ratio, clutter, photo count, item visible.
+- Maybe separate aesthetic model (CLIP/LAION) as baseline, but adapt to marketplace — "beautiful" ≠ "good selling photo".
 
-Labels to create:
+Labels:
 
-- `photo_quality_bad`: dark, blurry, low-resolution, cluttered, cropped badly, item not clearly visible, screenshots, mirror glare, bad background.
-- `photo_quality_good`: clear lighting, item centered, multiple angles, clean background, details visible.
-- `under_presented_candidate`: item has poor photos but seems potentially valuable based on brand, category, price, condition, and comparable listings.
-- `not_worth_relisting`: poor photos but also weak item/value signal.
+- `photo_quality_bad`: dark, blurry, low-res, cluttered, bad crop, item hidden, screenshots, mirror glare, bad background.
+- `photo_quality_good`: clear light, item centered, multiple angles, clean background, details visible.
+- `under_presented_candidate`: bad photos but maybe valuable by brand/category/price/condition/comparables.
+- `not_worth_relisting`: bad photos + weak value signal.
 
-Evaluation idea:
+Evaluation:
 
-- First evaluate visually: can the model separate obviously bad photos from good photos?
-- Then evaluate commercially: do bad-photo candidates have higher resale upside after filtering by brand/category/price?
-- Track real outcomes separately from the fast-sale model, because this strategy is about relisting improvement, not just immediate sell-speed.
+- First visual: model separate bad from good?
+- Then commercial: bad-photo candidates higher resale upside after brand/category/price filter?
+- Track outcomes separate from fast-sale model — this strategy = relist improvement, not immediate speed.
 
-Important boundaries:
+Boundaries:
 
-- This track should not automate purchases, messages, or seller contact.
-- Any buying decision should stay manual.
-- Relisted photos should accurately represent the item and should not hide defects.
-- Profit estimates must include shipping, fees, return risk, time cost, and the chance the item does not resell.
+- No automated buy, message, seller contact.
+- Buying stays manual.
+- Relisted photos must show item truth, no hide defects.
+- Profit estimates include shipping, fees, return risk, time cost, no-resell chance.
 
 Status:
 
@@ -64,16 +66,16 @@ Second project track idea.
 
 Idea:
 
-- Keep the first-stage model based only on public listing snapshot fields, so every first-page candidate can be scored cheaply and immediately.
-- Add a second-stage model for shortlisted candidates after full item/seller enrichment is available.
-- The second-stage model can use richer fields such as description, condition, upload age, seller reviews, seller stars, location, interested count, view count, picture count, image count, and image-quality features.
-- Use this model to rerank only candidates that pass an initial threshold or land in the top-K, instead of fully enriching every item.
+- Stage 1 model: only public snapshot fields → every first-page candidate scored cheap, fast.
+- Stage 2 model: shortlisted candidates after full item/seller enrichment.
+- Stage 2 use richer fields: description, condition, upload age, seller reviews/stars, location, interested, views, picture/image count, image-quality features.
+- Rerank only candidates past threshold or top-K, no full enrich every item.
 
-Why it might help:
+Why help:
 
-- False positives may be caused by missing context in the first-page snapshot.
-- Seller quality, condition, description wording, and picture count may separate genuinely attractive deals from listings that only look good from price/title.
-- This creates a practical funnel: broad cheap scoring first, richer precise scoring second.
+- False positives maybe from missing snapshot context.
+- Seller quality, condition, description wording, picture count → separate real deals from price/title-only good.
+- Funnel: broad cheap → richer precise.
 
 Status:
 
@@ -83,17 +85,17 @@ Idea only.
 
 Idea:
 
-- Combine multiple live-ready models instead of relying on one model per search.
-- Test simple voting rules such as "recommend only if at least 2 of 3 models pass threshold".
-- Test score averaging or weighted averaging across the strongest models.
-- Test conservative intersections for high precision and unions for broader recall.
-- Keep thresholds search-specific and model-specific, based on validation or live paper-trading results.
+- Combine many live-ready models, no rely on one per search.
+- Test vote rules: "recommend if ≥2 of 3 pass threshold".
+- Test score averaging / weighted averaging across strongest models.
+- Test conservative intersections (precision) + unions (recall).
+- Thresholds search-specific + model-specific, from validation/paper-trade.
 
-Why it might help:
+Why help:
 
 - Different models catch different patterns.
-- Agreement between independent approaches may reduce false positives.
-- Disagreement between models can become a useful uncertainty signal.
+- Agreement = fewer false positives.
+- Disagreement = useful uncertainty signal.
 
 Status:
 
@@ -103,17 +105,17 @@ Idea only.
 
 Idea:
 
-- Build a clean dataset from paper-trading/live benchmark results.
-- Each row should represent one observed candidate at one ranking time.
-- Store the exact search name, timestamp, model version, threshold version, features available at ranking time, model score, rank, and whether it was selected.
-- Add outcome labels only after enough time has passed: `sold_within_2h`, `sold_within_12h`, `sold_within_2d`, and `sold_within_7d`.
-- Keep unevaluated rows separate from true negatives, because an item that has not reached the 2-day window yet is not a confirmed 2-day negative.
+- Build clean dataset from paper-trade/live benchmark.
+- Each row = one candidate at one ranking time.
+- Store search name, timestamp, model version, threshold version, ranking-time features, score, rank, selected flag.
+- Add outcomes after time: `sold_within_2h`, `sold_within_12h`, `sold_within_2d`, `sold_within_7d`.
+- Keep unevaluated rows separate from true negatives — item not past 2d window ≠ confirmed 2d negative.
 
-Why it might help:
+Why help:
 
-- The historical CSVs are useful, but live labels are cleaner because the observation time is exact.
-- This dataset becomes the main source for improving models against the real goal: fast sale after being observed.
-- It allows fair comparison between models, thresholds, and searches.
+- Historical CSVs useful, but live labels cleaner — exact observation time.
+- Main source for improving models vs real goal: fast sale after observed.
+- Fair compare across models, thresholds, searches.
 
 Status:
 
@@ -123,16 +125,16 @@ Idea only.
 
 Idea:
 
-- Study items that were ranked highly or selected by threshold but did not sell quickly.
-- Group false positives by search, model, threshold, brand, price bucket, likes, upload age, seller review count, seller stars, condition, picture count, and item type.
-- Compare false positives against true positives in the same search to find what the model is overvaluing.
-- Create recurring failure tags such as "too expensive", "weak seller", "bad condition", "too niche", "low demand", "misleading brand/title", or "already saturated item type".
+- Study items ranked high / selected but no sell fast.
+- Group by search, model, threshold, brand, price bucket, likes, upload age, seller reviews/stars, condition, picture count, item type.
+- Compare false positives vs true positives same search → find what model overvalues.
+- Create failure tags: "too expensive", "weak seller", "bad condition", "too niche", "low demand", "misleading brand/title", "saturated item type".
 
-Why it might help:
+Why help:
 
-- High precision usually improves by removing repeated false-positive patterns.
-- False positives can become hard-negative examples for the next training run.
-- It can reveal where simple rules should override model enthusiasm.
+- Precision improve by removing repeated false-positive patterns.
+- False positives = hard negatives for next training.
+- Reveal where simple rules override model enthusiasm.
 
 Status:
 
@@ -142,16 +144,16 @@ Idea only.
 
 Idea:
 
-- Study items that sold quickly but were ranked low or not selected by the model.
-- Use all saved first-page candidates, not only selected items, so missed opportunities can be found.
-- Compare false negatives against selected true positives to find signals the model ignored.
-- Check whether false negatives share patterns such as low likes, unusual title wording, rare sizes, specific brands, low starting price, or very fresh upload age.
+- Study items sold fast but ranked low / not selected.
+- Use all saved first-page candidates, not just selected, find missed.
+- Compare false negatives vs selected true positives → find ignored signals.
+- Check shared patterns: low likes, weird title wording, rare sizes, specific brands, low start price, very fresh upload.
 
-Why it might help:
+Why help:
 
-- False negatives show what the current model does not understand yet.
-- They are useful for adding features, adjusting thresholds, and deciding whether a separate search-specific model is needed.
-- They help improve recall without blindly lowering thresholds.
+- False negatives show model gaps.
+- Useful for new features, threshold tuning, search-specific model decision.
+- Improve recall without blindly lowering thresholds.
 
 Status:
 
@@ -161,16 +163,16 @@ Idea only.
 
 Idea:
 
-- Choose thresholds separately for each search instead of using one global threshold.
-- Optimize thresholds against live outcomes, especially precision among selected items for 2h, 12h, and 2d sale windows.
-- Use stricter thresholds for noisy searches and looser thresholds for searches where the model is consistently precise.
-- Track threshold versions so old results remain interpretable.
+- Choose thresholds per search, no one global.
+- Optimize vs live outcomes — precision among selected for 2h/12h/2d windows.
+- Stricter for noisy searches, looser for consistently precise searches.
+- Track threshold versions → old results stay interpretable.
 
-Why it might help:
+Why help:
 
-- Searches have different base sale rates and different item mixes.
-- A probability score of `0.80` may mean different things in `nike`, `gucci`, `ps4`, or `griffati_donna_all`.
-- Search-specific thresholds can improve precision without retraining the model.
+- Searches have different base sale rates + item mixes.
+- Score `0.80` mean different in `nike`, `gucci`, `ps4`, or `griffati_donna_all`.
+- Search-specific thresholds = better precision, no retrain.
 
 Status:
 
@@ -180,16 +182,16 @@ Idea only.
 
 Idea:
 
-- Take high-scoring false positives from live tests and add them as especially important negative examples in later training.
-- Train future models to separate "looks like a good deal but did not sell quickly" from true fast-sale items.
-- Keep hard negatives search-specific when the failure pattern is search-specific.
-- Avoid using rows whose evaluation window is not mature yet.
+- Take high-scoring false positives from live → add as important negatives in next training.
+- Train models to separate "looks like deal but no sell fast" from real fast-sale.
+- Keep hard negatives search-specific when failure pattern is search-specific.
+- Skip rows with immature evaluation window.
 
-Why it might help:
+Why help:
 
-- The model may currently learn broad sold/not-sold patterns but miss subtle reasons a listing does not sell quickly.
-- Hard negatives teach the model about difficult mistakes, not just easy bad listings.
-- This can improve precision at the top of the ranking.
+- Model now learn broad sold/unsold, miss subtle reasons for slow sale.
+- Hard negatives teach difficult mistakes, not just easy bad listings.
+- Boost precision at ranking top.
 
 Status:
 
@@ -199,16 +201,16 @@ Idea only.
 
 Idea:
 
-- Check whether predicted probabilities match real live sale rates.
-- For example, among items scored around `0.80`, verify whether about 80% actually sell within the target window.
-- Calibrate models per search if needed using validation/live data.
-- Report calibration curves or probability buckets alongside precision metrics.
+- Check predicted probabilities match real live sale rates.
+- Example: items scored ~`0.80` → ~80% actually sell in window?
+- Calibrate per search if needed from validation/live data.
+- Report calibration curves / probability buckets alongside precision.
 
-Why it might help:
+Why help:
 
-- Good ranking is not the same as good probability estimation.
-- Threshold decisions are easier when scores mean something consistent.
-- Calibration can make probability thresholds more trustworthy and easier to compare across models.
+- Good ranking ≠ good probability estimation.
+- Threshold decisions easier when scores mean consistent.
+- Calibration → probability thresholds more trust, easier cross-model compare.
 
 Status:
 
@@ -218,16 +220,16 @@ Idea only.
 
 Idea:
 
-- Add features for observation hour, day of week, freshness/upload age, and possibly time since first seen.
+- Add features: observation hour, day of week, freshness/upload age, time since first seen.
 - Track whether listings observed at certain times sell faster.
-- Separate "newly uploaded and cheap" from "old listing still visible on page 1".
-- Use upload-age features carefully so only ranking-time information is used.
+- Separate "fresh + cheap" from "old still on page 1".
+- Use upload age careful — only ranking-time info.
 
-Why it might help:
+Why help:
 
-- Fast-sale behavior is strongly tied to freshness.
-- Some searches may be more active at specific hours or days.
-- Upload age can distinguish genuinely hot listings from stale listings that remain visible.
+- Fast-sale strongly tied to freshness.
+- Some searches more active at specific hours/days.
+- Upload age distinguish hot from stale-visible.
 
 Status:
 
@@ -237,16 +239,16 @@ Idea only.
 
 Idea:
 
-- Train and evaluate separate models per search when behavior is clearly different.
-- Keep a global model as a baseline, but do not force one model to fit every search.
-- Decide search-specific modeling based on live precision, false-positive patterns, false-negative patterns, and enough sample size.
-- Use simpler models for small searches and richer models for searches with enough data.
+- Train + evaluate separate models per search when behavior clearly different.
+- Keep global model baseline, no force one model fit all.
+- Decide by live precision, false-positive/negative patterns, sample size.
+- Simpler models small searches, richer models big data searches.
 
-Why it might help:
+Why help:
 
-- `ps4`, `nike`, `gucci`, and branded-clothing searches likely have different demand patterns.
-- Features that help one search can hurt another.
-- Separate models can learn category-specific price, brand, title, seller, and image patterns.
+- `ps4`, `nike`, `gucci`, branded-clothing → different demand.
+- Features help one search can hurt other.
+- Separate models learn category-specific price/brand/title/seller/image patterns.
 
 Status:
 
@@ -254,13 +256,13 @@ Idea only.
 
 ## Image Quality
 
-Current listing images are mostly cached as `.webp`.
+Listing images mostly cached as `.webp`.
 
-Possible future experiment:
+Future experiment:
 
-- Keep normal `.webp` cache for broad ranking.
-- Fetch higher-resolution images only for shortlisted buy candidates.
-- Compare machine-vision performance using current images vs higher-resolution images.
+- Keep `.webp` cache for broad ranking.
+- Fetch higher-res only for shortlisted buy candidates.
+- Compare vision performance: current vs higher-res.
 
 Status:
 
@@ -268,19 +270,19 @@ Idea only.
 
 ## Bright Data MCP
 
-Could be useful for:
+Useful for:
 
-- Debugging live Vinted pages.
-- Testing selectors.
-- Investigating blocked or dynamic pages.
-- Prototyping scraping logic interactively.
+- Debug live Vinted pages.
+- Test selectors.
+- Investigate blocked/dynamic pages.
+- Prototype scraping interactively.
 
-Probably not ideal as the main production pipeline.
+Probably not ideal as main production pipeline.
 
-Better likely split:
+Better split:
 
-- Production scraper uses Python plus Bright Data proxy/Web Unlocker/Browser API.
-- Codex/debugging uses Bright Data MCP when live page inspection is useful.
+- Production scraper = Python + Bright Data proxy/Web Unlocker/Browser API.
+- Codex/debug = Bright Data MCP when live page inspection useful.
 
 Status:
 
@@ -288,12 +290,12 @@ Maybe later.
 
 ## Eventual-Sale Evaluation
 
-Possible improvements:
+Improvements:
 
-- Track how long it takes for an item to sell after first scrape.
-- Separate quick sales from slow sales.
-- Evaluate deal score by sale speed, not only sold/not sold.
-- Use eventual-sale labels to tune category-specific thresholds.
+- Track time from first scrape to sale.
+- Separate quick from slow sales.
+- Score deals by sale speed, not just sold/unsold.
+- Use eventual-sale labels → tune category thresholds.
 
 Status:
 
@@ -301,10 +303,10 @@ Idea only.
 
 ## Final Buy Filter
 
-Possible improvements:
+Improvements:
 
-- Save a clearer explanation for why each candidate was recommended or rejected.
-- Add seller-level risk flags.
+- Save clearer reason why candidate recommended/rejected.
+- Add seller risk flags.
 - Add image-based condition checks.
 - Add category-specific final-buy rules.
 
@@ -314,11 +316,11 @@ Idea only.
 
 ## Remote Workflow
 
-Possible improvements:
+Improvements:
 
-- Use `tmux` session names per task, such as `vinted-main`, `vinted-eval`, and `vinted-debug`.
-- Add a small script to show active scraper jobs.
-- Add a small script to tail important logs.
+- Use `tmux` session names per task: `vinted-main`, `vinted-eval`, `vinted-debug`.
+- Small script show active scraper jobs.
+- Small script tail important logs.
 
 Status:
 

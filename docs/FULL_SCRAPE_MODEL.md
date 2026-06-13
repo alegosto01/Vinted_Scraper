@@ -1,40 +1,42 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Full Scrape Model
 
 ## Purpose
 
-This experiment family trains the same offline model approaches used by the existing deal-finder sweep, but on the newer full-scrape-derived datasets.
+Experiment family train same offline model approaches as deal-finder sweep, but on newer full-scrape datasets.
 
-The main goal is to evaluate sold vs not-sold prediction quality on full-scraped items, using per-search training and the same model families already used in deal-finder benchmarking.
+Main goal: evaluate sold vs not-sold prediction quality on full-scraped items, per-search training, same model families as deal-finder benchmark.
 
-At this point, the only task that matters is `sold_status`.
+Only task that matter now: `sold_status`.
 
-The alternative `extreme_score` task was wired up initially for `score_low` vs `score_high`, but the user explicitly said they do not care about that path now, and its run outputs were deleted.
+Alternative `extreme_score` task wired up first for `score_low` vs `score_high`, but user said no care, outputs deleted.
 
 ## Current Decision State
 
-- Keep and use only the `sold_status` task.
-- Ignore `extreme_score` for now.
-- Exclude `Borse_Griffate` and `Scarpe_Griffate` from user-facing result summaries.
-- Current comparison baseline for the old approach is the deal-finder offline sweep in [data/experiments/deal_finder/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/data/experiments/deal_finder/offline_runs/sweep_20260510_222252).
+- Keep only `sold_status` task.
+- Ignore `extreme_score`.
+- Exclude `Borse_Griffate` and `Scarpe_Griffate` from user-facing summaries.
+- Baseline for old approach: deal-finder offline sweep at [data/experiments/deal_finder/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/data/experiments/deal_finder/offline_runs/sweep_20260510_222252).
 
 ## Code Layout
 
-The new experiment package lives in [scripts/experiments/full_scrape_model](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model).
+New experiment package at [scripts/experiments/current/full_scrape_model](/home/ale/Desktop/vinted/Vinted_New_Version/scripts/experiments/current/full_scrape_model).
 
-- [scripts/experiments/full_scrape_model/dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model/dataset.py)
-  Builds per-search datasets from merged full-scrape CSV exports.
-- [scripts/experiments/full_scrape_model/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model/model_sweep.py)
-  Reuses the deal-finder sweep machinery and model definitions, but writes outputs into the full-scrape-model experiment root.
-- [scripts/experiments/full_scrape_model/paths.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model/paths.py)
-  Defines the experiment root, model output root, and helper manifest/json writers.
-- [scripts/experiments/full_scrape_model/build_dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model/build_dataset.py)
-  Thin CLI wrapper around `dataset.py`.
-- [scripts/experiments/full_scrape_model/train_offline.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/full_scrape_model/train_offline.py)
-  Thin CLI wrapper around `model_sweep.py`.
+- [scripts/experiments/current/full_scrape_model/dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/dataset.py)
+  Build per-search datasets from merged full-scrape CSV exports.
+- [scripts/experiments/current/full_scrape_model/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/model_sweep.py)
+  Reuse deal-finder sweep machinery and model defs, write outputs to full-scrape-model root.
+- [scripts/experiments/current/full_scrape_model/paths.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/paths.py)
+  Define experiment root, model output root, helper manifest/json writers.
+- [scripts/experiments/current/full_scrape_model/build_dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/build_dataset.py)
+  Thin CLI wrap of `dataset.py`.
+- [scripts/experiments/current/full_scrape_model/train_offline.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/train_offline.py)
+  Thin CLI wrap of `model_sweep.py`.
 
 ## Reused Logic
 
-The sweep intentionally reuses the existing deal-finder approaches from [scripts/experiments/deal_finder/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/deal_finder/model_sweep.py).
+Sweep reuse deal-finder approaches from [scripts/experiments/current/deal_finder/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/deal_finder/model_sweep.py).
 
 Current approach set:
 
@@ -46,27 +48,27 @@ Current approach set:
 - `rules_price_v1`
 - `visual_basic_v1`
 
-The full-scrape sweep patches the reused deal-finder sweep so that:
+Full-scrape sweep patch reused deal-finder sweep so:
 
-- artifacts are written under the full-scrape-model experiment root instead of the deal-finder root
-- metadata is rewritten with `experiment_family = full_scrape_model`
-- task-specific label names are recorded in model metadata
+- artifacts go under full-scrape-model root not deal-finder root
+- metadata rewritten with `experiment_family = full_scrape_model`
+- task-specific label names recorded in model metadata
 
 ## Data Sources
 
 ### Primary Sold/Not-Sold Training Source
 
-The active source is:
+Active source:
 
 - [data/simple_scrape/full_scrape_merged_stage_resume_20260513/backfill_sold_unsold_all_searches.csv](/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/full_scrape_merged_stage_resume_20260513/backfill_sold_unsold_all_searches.csv)
 
-Important columns used by the dataset builder:
+Columns used by dataset builder:
 
 - `SourceSearch`
 - `MergedStatusBinary`
 - `Dataid` and fallback `Link` for identity
 
-For `sold_status`, the dataset builder maps:
+For `sold_status`, dataset builder map:
 
 - `MergedStatusBinary == sold` to `offline_sold_label = 1`
 - all rows to `offline_label_eligible = True`
@@ -75,15 +77,15 @@ For `sold_status`, the dataset builder maps:
 
 ### Deprecated Low/High Score Source
 
-This source exists in code, but is not currently relevant to the user:
+Source in code but not relevant now:
 
 - [data/simple_scrape/full_scrape_merged_stage_resume_20260513/main_full_scrape_verylow_veryhigh_all_searches.csv](/home/ale/Desktop/Vinted_New_Version/data/simple_scrape/full_scrape_merged_stage_resume_20260513/main_full_scrape_verylow_veryhigh_all_searches.csv)
 
-The related outputs were deleted from the full-scrape-model run folder.
+Related outputs deleted from full-scrape-model run folder.
 
 ## Search Coverage
 
-The sold-status merged full-scrape export currently contains these searches:
+Sold-status merged full-scrape export contain these searches:
 
 - `Borse_Griffate`
 - `griffati_donna_all`
@@ -93,20 +95,20 @@ The sold-status merged full-scrape export currently contains these searches:
 - `prada`
 - `ps4`
 
-There is no `Scarpe_Griffate` entry in the merged full-scrape sold-status export.
+No `Scarpe_Griffate` entry in merged sold-status export.
 
-For reporting, the user asked to exclude:
+User say exclude from reports:
 
 - `Borse_Griffate`
 - `Scarpe_Griffate`
 
 ## Current Run State
 
-The active full-scrape-model sold-status run is:
+Active full-scrape-model sold-status run:
 
 - [data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018)
 
-Key files from that run:
+Key files:
 
 - [manifest.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/manifest.json)
 - [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/dataset_summary.json)
@@ -124,19 +126,19 @@ Run summary:
 - promotion candidates: `25`
 - seed set: `42`
 
-The earlier `extreme_score` runs were removed, so only sold-status runs should remain under [data/experiments/full_scrape_model/offline_runs](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs).
+Earlier `extreme_score` runs removed, so only sold-status runs remain under [data/experiments/full_scrape_model/offline_runs](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs).
 
 ## Feature Modality Comparison
 
-The feature-modality comparison run is:
+Feature-modality run:
 
 - [data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual)
 
-This run trains the same sold-status model families across three modes:
+Train same sold-status families in three modes:
 
-- `basic_5`: only `Title`, `Brand`, `Size`, `Price`, and `Likes` as source inputs.
-- `full_scrape`: basic fields plus full item/seller metadata, without photo-arbitrage visual features.
-- `full_scrape_plus_visual`: full-scrape fields plus photo-arbitrage visual features from `sold_unsold_visuals_20260514_full`, including DINO embedding dimensions where available.
+- `basic_5`: only `Title`, `Brand`, `Size`, `Price`, `Likes` as inputs.
+- `full_scrape`: basic fields plus full item/seller metadata, no photo-arbitrage visual features.
+- `full_scrape_plus_visual`: full-scrape fields plus photo-arbitrage visual features from `sold_unsold_visuals_20260514_full`, includes DINO embedding dims where available.
 
 Main files:
 
@@ -147,14 +149,14 @@ Main files:
 
 Headline result:
 
-- The large improvement comes from full item/seller fields, not from visual features.
-- Visual features add small extra value for some model/search pairs, especially `nike`, `prada`, and a few `ps4` rows by AUC.
-- Visual features did not improve the best full-scrape row for every search; in several cases they reduced the selected threshold count while keeping precision high.
-- This is still an offline sold-vs-unsold test, not a final live fast-sale result.
+- Big lift from full item/seller fields, not from visual features.
+- Visual features add small extra value for some model/search pairs, especially `nike`, `prada`, few `ps4` rows by AUC.
+- Visual features no improve best full-scrape row for every search; sometimes reduce threshold count while keep precision high.
+- Still offline sold-vs-unsold test, not final live fast-sale result.
 
 ## Current Best Models Per Search
 
-From [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv), excluding `Borse_Griffate`:
+From [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv), exclude `Borse_Griffate`:
 
 - `griffati_donna_all`: `numeric_tree_v1`
 - `griffati_uomo_all`: `linear_svm_calibrated_v1`
@@ -163,7 +165,7 @@ From [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/
 - `prada`: `numeric_tree_v1`
 - `ps4`: `numeric_tree_v1`
 
-Headline metrics for those winners:
+Headline metrics for winners:
 
 - `griffati_donna_all`: test precision `0.9355`, test p@10 `1.0`, test count `31`
 - `griffati_uomo_all`: test precision `0.8333`, test p@10 `0.8`, test count `24`
@@ -174,28 +176,28 @@ Headline metrics for those winners:
 
 ## Comparison Against Older Deal-Finder Models
 
-Comparison baseline:
+Baseline:
 
 - [data/experiments/deal_finder/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/data/experiments/deal_finder/offline_runs/sweep_20260510_222252)
 
-Important result summary:
+Result summary:
 
-- Full-scrape won clearly on `griffati_donna_all`, `gucci`, `prada`, and `ps4`.
-- `griffati_uomo_all` looks less extreme on raw precision than the old deal-finder best row, but the new full-scrape winner is better supported and promotion-qualified, while the old row was not.
-- `nike` is the one search where the old deal-finder best model still looks stronger.
+- Full-scrape win clear on `griffati_donna_all`, `gucci`, `prada`, `ps4`.
+- `griffati_uomo_all` look less extreme on raw precision than old deal-finder best, but new full-scrape winner better supported and promotion-qualified, old row was not.
+- `nike` only search where old deal-finder best still stronger.
 
-More detailed interpretation:
+Detail interpretation:
 
-- `griffati_donna_all`: full-scrape `numeric_tree_v1` beat the old `numeric_tree_v1` by a large margin.
-- `griffati_uomo_all`: full-scrape `linear_svm_calibrated_v1` is more conservative but more credible than the old `logistic_snapshot_v2` result.
-- `gucci`: full-scrape switched the winner from `visual_basic_v1` to `linear_svm_calibrated_v1` and improved precision.
+- `griffati_donna_all`: full-scrape `numeric_tree_v1` beat old `numeric_tree_v1` by big margin.
+- `griffati_uomo_all`: full-scrape `linear_svm_calibrated_v1` more conservative but more credible than old `logistic_snapshot_v2`.
+- `gucci`: full-scrape switch winner from `visual_basic_v1` to `linear_svm_calibrated_v1`, precision up.
 - `nike`: old `linear_svm_calibrated_v1` beat full-scrape `visual_basic_v1`.
-- `prada`: full-scrape switched the winner from `visual_basic_v1` to `numeric_tree_v1` while keeping precision at `1.0` and improving PR AUC.
-- `ps4`: full-scrape kept `numeric_tree_v1` and improved both threshold precision and p@10.
+- `prada`: full-scrape switch winner from `visual_basic_v1` to `numeric_tree_v1`, precision still `1.0`, PR AUC up.
+- `ps4`: full-scrape keep `numeric_tree_v1`, both threshold precision and p@10 up.
 
 Important correction to earlier intuition:
 
-The older deal-finder sweep did not use less labeled data. In the compared searches, it actually had more eligible labeled rows than the full-scrape sold-status sweep. The likely explanation for many of the full-scrape improvements is cleaner labels and better class balance, not larger sample size.
+Old deal-finder sweep did not use less labeled data. In compared searches it had MORE eligible labeled rows than full-scrape sold-status sweep. Likely cause of full-scrape gains: cleaner labels and better class balance, not bigger sample.
 
 ## Dataset Sizes Used In The Full-Scrape Sold-Status Run
 
@@ -209,11 +211,11 @@ From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiment
 - `prada`: eligible `3650`, positives `1993`
 - `ps4`: eligible `4647`, positives `2471`
 
-`Borse_Griffate` is too small and degenerate for meaningful model selection here.
+`Borse_Griffate` too small and degenerate for model selection.
 
 ## SHAP / Feature Contribution Analysis
 
-A readable SHAP-style analysis was added for the best `basic_5` and `full_scrape_plus_visual` models from the full visual run.
+Readable SHAP-style analysis added for best `basic_5` and `full_scrape_plus_visual` models from full visual run.
 
 Latest run:
 
@@ -226,16 +228,16 @@ Main files:
 - `shap_analysis_report.md`: compact human-readable summary.
 - `shap_model_summary.csv`: one row per explained search/mode/model.
 - `shap_feature_importance_long.csv`: feature-level contribution table.
-- `shap_group_importance.csv`: grouped importance by text, basic numeric, full-scrape, and readable visual features.
+- `shap_group_importance.csv`: grouped importance by text, basic numeric, full-scrape, readable visual features.
 - `shap_item_explanations.csv`: per-item top positive and negative drivers.
 
-Raw DINO embedding dimensions such as `DinoEmbedding_0000` are intentionally excluded from the reported SHAP tables. The trained models are still explained as trained, but the report hides those raw dimensions so the output stays readable. DINO summary features such as `DinoEmbeddingNorm` and `DinoOutlierScore` remain visible.
+Raw DINO embedding dims like `DinoEmbedding_0000` excluded from reported SHAP tables. Models still explained as trained, but report hide raw dims for readability. DINO summary features like `DinoEmbeddingNorm` and `DinoOutlierScore` stay visible.
 
-Early signal from the SHAP run:
+Early signal:
 
-- `basic_5` models are mostly driven by title/brand/size text plus `Price` and `Likes`.
-- `full_scrape_plus_visual` adds useful signals from full-scrape fields and readable photo-quality features, especially in `gucci`, `ps4`, and `prada`.
-- `CombinedBadPhotoScore`, sharpness, picture-count fields, description length, review/star fields, and upload-age text are among the most useful non-basic signals.
+- `basic_5` models mostly driven by title/brand/size text plus `Price` and `Likes`.
+- `full_scrape_plus_visual` add useful signal from full-scrape fields and readable photo-quality features, especially in `gucci`, `ps4`, `prada`.
+- `CombinedBadPhotoScore`, sharpness, picture-count fields, description length, review/star fields, upload-age text among most useful non-basic signals.
 
 ## SearchCount/Page Ablation And Upload-Date Check
 
@@ -255,91 +257,91 @@ Main files:
 
 Result summary:
 
-- Removing `SearchCount` and `Page` usually preserved strict-threshold precision, but reduced PR AUC in several searches.
-- The largest PR AUC drops were in `griffati_donna_all` and `griffati_uomo_all`; these fields were clearly helping ranking quality there.
-- `gucci`, `nike`, `prada`, and `ps4` were more robust, especially in `full_scrape_plus_visual`.
-- Upload-date looked important mostly for `gucci`, `ps4`, and `prada`, but the reason check showed it is entangled with dataset creation: `sold_backfill_stage` rows tend to be older, while `unsold_balance_stage` rows tend to include very recent listings.
+- Remove `SearchCount` and `Page` usually keep strict-threshold precision, but cut PR AUC in several searches.
+- Biggest PR AUC drops: `griffati_donna_all` and `griffati_uomo_all`; these fields help ranking quality there.
+- `gucci`, `nike`, `prada`, `ps4` more robust, especially in `full_scrape_plus_visual`.
+- Upload-date look important mostly for `gucci`, `ps4`, `prada`, but reason check show it entangled with dataset creation: `sold_backfill_stage` rows older, `unsold_balance_stage` rows include very recent listings.
 
 ## Upload_date Decision (implemented 2026-05-16)
 
-`Upload_date` (text) and `Upload_date_days` (numeric) are now **excluded by default** from the `full_scrape` and `full_scrape_plus_visual` feature pools in `compare_feature_modalities.py`.
+`Upload_date` (text) and `Upload_date_days` (numeric) now **excluded by default** from `full_scrape` and `full_scrape_plus_visual` pools in `compare_feature_modalities.py`.
 
-Reason: the historical value is entangled with dataset construction origin — `sold_backfill_stage` rows are systematically older, `unsold_balance_stage` rows are newer — so the model learns dataset source rather than a real freshness signal.
+Reason: historical value entangled with dataset origin — `sold_backfill_stage` rows systematically older, `unsold_balance_stage` rows newer — so model learn dataset source not real freshness signal.
 
-To reproduce the old behaviour for comparison:
-
-```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/compare_feature_modalities.py --all-searches --include-upload-date
-```
-
-For the recommended clean run (default):
+To reproduce old behaviour for comparison:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/compare_feature_modalities.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/compare_feature_modalities.py --all-searches --include-upload-date
 ```
 
-Future path: once live paper-trading collects a `FirstSeenAt` timestamp for each item, compute upload age at first observation time (`UploadAgeDaysAtObservation`) and add it back as a clean live feature.
+For recommended clean run (default):
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/compare_feature_modalities.py --all-searches
+```
+
+Future path: once live paper-trading collect `FirstSeenAt` timestamp per item, compute upload age at first observation time (`UploadAgeDaysAtObservation`) and add back as clean live feature.
 
 ## How To Rerun
 
 ### Build Datasets Only
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/build_dataset.py --task sold_status --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/build_dataset.py --task sold_status --all-searches
 ```
 
 ### Run The Sold-Status Sweep For All Searches
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/model_sweep.py --task sold_status --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --all-searches
 ```
 
 ### Run A Single Search
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/model_sweep.py --task sold_status --search gucci
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --search gucci
 ```
 
 ### Restrict To Specific Approaches
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/model_sweep.py --task sold_status --search gucci --approach numeric_tree_v1 --approach linear_svm_calibrated_v1
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --search gucci --approach numeric_tree_v1 --approach linear_svm_calibrated_v1
 ```
 
 ### Robustness Mode
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/model_sweep.py --task sold_status --all-searches --robustness
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --all-searches --robustness
 ```
 
 ### Run Readable SHAP Analysis
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/shap_analysis.py --max-background-rows 120 --max-explain-rows 180
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/shap_analysis.py --max-background-rows 120 --max-explain-rows 180
 ```
 
-By default this explains `basic_5` and `full_scrape_plus_visual` models and skips raw DINO embedding dimensions in the output.
+By default explain `basic_5` and `full_scrape_plus_visual` models, skip raw DINO embedding dims in output.
 
 ### Run SearchCount/Page Ablation And Upload-Date Analysis
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/full_scrape_model/ablation_upload_date_analysis.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/ablation_upload_date_analysis.py --all-searches
 ```
 
 ## Known Constraints
 
-- The sweep currently requires at least `50` eligible rows and both label classes to train for a search.
-- `visual_basic_v1` can be slower because it derives image features.
-- The full-scrape sweep is offline only. It does not trigger paper trading, timers, or live scraping.
-- The current output root is fully separate from the deal-finder output root.
-- The current user intent is evaluation and comparison, not deployment.
-- Tree-model SHAP requires the optional `shap` package in the `vinted_scraper` environment.
+- Sweep need at least `50` eligible rows and both label classes to train for a search.
+- `visual_basic_v1` slower because derive image features.
+- Full-scrape sweep offline only. No paper trading, timers, or live scraping.
+- Output root fully separate from deal-finder output root.
+- Current user intent: evaluation and comparison, not deployment.
+- Tree-model SHAP need optional `shap` package in `vinted_scraper` env.
 
 ## Recommended Next Steps For Another Agent
 
-If continuing this work, the most useful next steps are:
+If continue, most useful next steps:
 
-1. Decide whether to adopt the full-scrape winners as the new default per-search offline candidates.
-2. Investigate why `nike` regressed relative to the old deal-finder sweep.
-3. If needed, produce a single side-by-side CSV comparing old vs full-scrape best rows for the kept searches.
-4. If the user later changes direction, the code can support `extreme_score`, but that path should stay dormant unless they explicitly ask for it again.
+1. Decide whether adopt full-scrape winners as new default per-search offline candidates.
+2. Investigate why `nike` regressed vs old deal-finder sweep.
+3. If need, produce single side-by-side CSV comparing old vs full-scrape best rows for kept searches.
+4. If user change direction later, code can support `extreme_score`, but path stay dormant unless they ask again.

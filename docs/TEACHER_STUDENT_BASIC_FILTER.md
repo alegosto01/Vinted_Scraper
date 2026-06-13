@@ -26,10 +26,10 @@ The recall-trained run is preserved at `data/experiments/teacher_student_basic_f
 
 ```bash
 # Precision objective (current default for the cascade)
-python scripts/experiments/teacher_student_basic_filter/train_student.py --all-searches --objective precision --target 0.95
+python scripts/experiments/current/teacher_student_basic_filter/train_student.py --all-searches --objective precision --target 0.95
 
 # Recall objective (the older mode, still supported)
-python scripts/experiments/teacher_student_basic_filter/train_student.py --all-searches --objective recall --target 0.95
+python scripts/experiments/current/teacher_student_basic_filter/train_student.py --all-searches --objective recall --target 0.95
 ```
 
 The `--objective` flag defaults to `recall` so older invocation lines keep working; the cascade however explicitly defaults to the precision-trained student. The trainer also writes a `target_tradeoff_by_search.csv` over `(0.85, 0.90, 0.95, 0.98)` for precision and `(0.90, 0.95, 0.98, 0.99)` for recall.

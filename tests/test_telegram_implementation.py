@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 from telegram_implementation.item_cache import cache_item, load_cached_item, load_description_payload, save_description_payload
 from telegram_implementation.description_service import generate_description_for_item
 from telegram_implementation.notify import (
+    build_caption,
     build_description_actions_keyboard,
     build_generate_keyboard,
     extract_primary_image_url,
@@ -71,6 +72,18 @@ class TelegramImplementationTests(unittest.TestCase):
         resolved = extract_primary_image_url(raw_value)
 
         self.assertEqual(resolved, "https://images1.vinted.net/a.webp")
+
+    def test_caption_includes_recommendation_reason(self):
+        item = {
+            "Title": "Prada bag",
+            "Price": 50,
+            "Link": "https://example.com/item/1",
+            "RecommendationReason": "Giant model pass: xgboost_basic_v1",
+        }
+
+        caption = build_caption(item)
+
+        self.assertIn("Giant model pass", caption)
 
     @mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False)
     @mock.patch("telegram_implementation.description_service.load_example_corpus")

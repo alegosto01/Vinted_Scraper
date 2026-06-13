@@ -8,9 +8,12 @@ ps4:
   sort: "newest_first"
   category: " "
   folder: "ps4"
-  enabled: true
+  enabled: false
   no_residential: true
   tags: []
+  wrong_words:
+    - "ps5"
+    - "playstation 5"
 
 
 gucci:
@@ -23,7 +26,7 @@ gucci:
   sort: "newest_first"
   category: " "
   folder: "gucci"
-  enabled: true
+  enabled: false
   no_residential: true
   cascade_only: true
   tags: []
@@ -38,7 +41,7 @@ nike:
   sort: "newest_first"
   category: " "
   folder: "nike"
-  enabled: true
+  enabled: false
   no_residential: true
   tags: []
 
@@ -52,7 +55,7 @@ prada:
   sort: "newest_first"
   category: " "
   folder: "prada"
-  enabled: true
+  enabled: false
   no_residential: true
   cascade_only: true
   tags: []
@@ -120,7 +123,7 @@ griffati_uomo_all:
   sort: "newest_first"
   category: "Articoli Griffati/Articoli Griffati per Uomo"
   folder: "griffati_uomo_all"
-  enabled: true
+  enabled: false
   no_residential: true
   tags: []
 
@@ -134,7 +137,7 @@ griffati_donna_all:
   sort: "newest_first"
   category: "Articoli Griffati/Articoli Griffati per Donna"
   folder: "griffati_donna_all"
-  enabled: true
+  enabled: false
   no_residential: true
   tags: []
 

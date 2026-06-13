@@ -28,6 +28,7 @@ Common doc targets:
 | Photo-improvement experiment behavior | `docs/PHOTO_ARBITRAGE.md` |
 | Prompt wording or communication safety | `docs/COMMUNICATION_SAFETY.md` |
 | Long-chat handoff or active run context | `docs/SESSION_CONTEXT.md` |
+| Codex skills or recurring monitoring prompts | `docs/CODEX_AUTOMATIONS.md` |
 
 ## Project Rules To Preserve
 
@@ -78,6 +79,17 @@ Check active scraper/background processes:
 ```bash
 ps -ef | rg 'scripts/main.py|workflow_runner.py main|daily_eventual_sales|python'
 ```
+
+## Repo Skills
+
+Codex-specific repo skills live under `.agents/skills/`.
+
+- `$check-live-runs`: read-only health checks for live collector, giant scorer,
+  Telegram loop, and logs.
+- `$giant-model-results`: summarize Basic5 giant-model results and tables.
+- `$telegram-policy`: explain, test, or change Telegram candidate policy.
+
+For recurring read-only checks, use the prompts in `docs/CODEX_AUTOMATIONS.md`.
 
 ## Final Answer Checklist
 

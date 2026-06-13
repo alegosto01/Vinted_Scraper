@@ -1,0 +1,56 @@
+# Keep Graphify focused on source code and compact project docs.
+
+# VCS, agent config, and generated graph state
+.git/
+.codex/
+.claude/
+.kimi/
+graphify-out/
+
+# Personal knowledge base branches stay separate from this Graphify branch.
+wiki/
+CLAUDE.md
+docs/full_experiment_basic_visual_model.md
+
+# Large/generated experiment data
+data/
+models/
+scripts/experiments/**/reports/
+scripts/experiments/**/runs/
+deal_score_eval/
+out_subclustering/
+
+# Python and tool caches
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Local configuration and secrets
+.env
+.env.*
+scripts/telegram_scripts/bot_env.env
+
+# Generated artifacts and media that do not help code navigation.
+*.csv
+*.sqlite
+*.db
+*.log
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.h5
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.pdf

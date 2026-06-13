@@ -113,5 +113,13 @@ ihwbvivbr.csv
 replacements.txt
 
 # IDE / local configs
-.claude/
+.claude/*
+!.claude/
+!.claude/settings.json
+.claude/settings.local.json
 scripts/telegram_scripts/bot_env.env
+
+# Graphify branch: keep personal notes and generated graph state local.
+wiki/
+docs/full_experiment_basic_visual_model.md
+graphify-out/

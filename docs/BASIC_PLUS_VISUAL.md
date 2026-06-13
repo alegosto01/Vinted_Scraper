@@ -76,7 +76,7 @@ calibrations, and prevents one over-confident model from crowding out the rest.
 
 Defaults: `--max-items-total 30` items kept globally per cycle. Tracked items
 are deduplicated by `(Dataid, SearchName)` with the most recent `_tracked_at`
-winning (see `merge_tracked` in [`runner.py`](../scripts/experiments/basic_plus_visual/runner.py)).
+winning (see `merge_tracked` in [`runner.py`](../scripts/experiments/old/basic_plus_visual/runner.py)).
 
 ## Recheck Schedule
 
@@ -99,19 +99,19 @@ Each recheck call writes `reports/recheck_<ts>.csv` and emits an
 Single collection pass:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/basic_plus_visual/runner.py collect-once
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py collect-once
 ```
 
 Single recheck pass for items due:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/basic_plus_visual/runner.py recheck-due
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py recheck-due
 ```
 
 Hourly run-loop (production):
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/basic_plus_visual/runner.py run-loop --collect-every-hours 1 --max-items-total 30
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py run-loop --collect-every-hours 1 --max-items-total 30
 ```
 
 Recommended invocation when restarting after a crash (keeps stdout flushing so
@@ -119,7 +119,7 @@ errors surface in the log immediately):
 
 ```bash
 PYTHONUNBUFFERED=1 nohup /home/ale/miniconda3/envs/vinted_scraper/bin/python \
-  scripts/experiments/basic_plus_visual/runner.py run-loop \
+  scripts/experiments/old/basic_plus_visual/runner.py run-loop \
   >> data/experiments/basic_plus_visual/run-loop.log 2>&1 &
 disown
 ```
@@ -178,7 +178,7 @@ cascade at lower compute cost.
   required because the trained models depend on `DinoEmbedding_0000..0383` —
   omitting `dino` will break scoring.
 - The `_ensure_local_primary_images` helper in
-  [`runner.py`](../scripts/experiments/basic_plus_visual/runner.py) intentionally
+  [`runner.py`](../scripts/experiments/old/basic_plus_visual/runner.py) intentionally
   does its own image download rather than reusing
   `cascade_runner.ensure_local_primary_images`, because the cascade helper
   asserts the path is under `benchmark_basic_to_full/` and would reject writes

@@ -1,10 +1,12 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Deal Finder Experiments
 
-This file tracks the offline experiment framework for finding high-precision Vinted deals.
+File track offline experiment framework for find high-precision Vinted deals.
 
 ## Goal
 
-Find listings that are likely to be good deals.
+Find listings likely good deals.
 
 Offline training label:
 
@@ -24,86 +26,86 @@ Live paper-trading secondary success label:
 sold within 7 days after being ranked
 ```
 
-The saved historical data does not reliably contain exact sale timestamps for every item, so offline models should not be trained on "sold within 2 days". The 2-day target is measured during paper-trading, where each prediction has a clean timestamp.
+Saved historical data no reliable contain exact sale timestamps every item, so offline models no train on "sold within 2 days". 2-day target measured during paper-trading, where each prediction got clean timestamp.
 
-The default model feature policy is `snapshot_raw_v1`: train only on fields available in a first-page catalog snapshot, such as price, likes, page, title, brand, size, and search name. Pipeline-only fields such as `DealScore`, `ExpectedProfit`, or variant price statistics are not used unless the live paper-trading collector is also upgraded to compute them before scoring.
+Default model feature policy `snapshot_raw_v1`: train only on fields available in first-page catalog snapshot — price, likes, page, title, brand, size, search name. Pipeline-only fields like `DealScore`, `ExpectedProfit`, variant price stats no used unless live paper-trading collector also upgraded compute them before scoring.
 
 ## Safety Rules
 
 - Work on branch `deal-experiment-runner`.
 - Store experiment outputs under `data/experiments/deal_finder/`.
-- Do not edit `.env` or private configuration files.
-- Do not delete existing data.
-- Do not make purchases, send messages, contact sellers, or perform account actions.
-- Do not write paper-trading snapshots into production tracking files.
+- No edit `.env` or private config files.
+- No delete existing data.
+- No purchases, messages, contact sellers, account actions.
+- No write paper-trading snapshots into production tracking files.
 
 ## Offline Commands
 
 Build normalized datasets:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/build_dataset.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/build_dataset.py --all-searches
 ```
 
 Train and evaluate offline models:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/train_offline.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches
 ```
 
-If one or more searches pass the conservative promotion rule, this command automatically starts paper-trading for up to 3 qualified searches.
+If one+ searches pass conservative promotion rule, command auto-starts paper-trading for up to 3 qualified searches.
 
-To disable that behavior:
+Disable that behavior:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/train_offline.py --all-searches --no-auto-paper-trading
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches --no-auto-paper-trading
 ```
 
 Generate report:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/report.py
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/report.py
 ```
 
-Run the offline multi-approach sweep:
+Run offline multi-approach sweep:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/model_sweep.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/model_sweep.py --all-searches
 ```
 
-The sweep is offline-only. It writes recommendation candidates but does not start or stop paper-trading timers.
+Sweep offline-only. Write recommendation candidates but no start/stop paper-trading timers.
 
-Run the live all-model benchmark from a completed sweep:
+Run live all-model benchmark from completed sweep:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/paper_trade_model_benchmark.py --sweep-run data/experiments/deal_finder/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_model_benchmark.py --sweep-run data/experiments/deal_finder/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled
 ```
 
-The benchmark is separate from the Nike/Gucci hourly runner. It collects one first-page snapshot per search, scores every saved sweep model for that same search, and stores three threshold variants per model: `strict`, `medium`, and `loose`.
+Benchmark separate from Nike/Gucci hourly runner. Collect one first-page snapshot per search, score every saved sweep model for same search, store three threshold variants per model: `strict`, `medium`, `loose`.
 
 ## Normal Live Scoring And Full Enrichment
 
-Normal live scraping also scores newly discovered rows with the current best per-search model from:
+Normal live scrape also score new rows with current best per-search model from:
 
 ```text
 data/experiments/deal_finder/offline_runs/sweep_20260510_222252/best_by_search.csv
 ```
 
-Rows get `DealFinderScore`, `DealFinderModel`, `DealFinderScoredAt`, and `DealFinderScoreBand`.
+Rows get `DealFinderScore`, `DealFinderModel`, `DealFinderScoredAt`, `DealFinderScoreBand`.
 
-Rows with `DealFinderScore <= 0.05` or `DealFinderScore >= 0.95` are fully enriched into:
+Rows with `DealFinderScore <= 0.05` or `DealFinderScore >= 0.95` fully enriched into:
 
 ```text
 data/simple_scrape/<search_name>/full_scrape/items_enriched.csv
 ```
 
-Historical sold rows can be backfilled with:
+Historical sold rows can backfill with:
 
 ```bash
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/full_scrape_sold_history.py --all-searches --batch-size 100 --max-workers 2 --image-mode html
 ```
 
-Use a smoke run first when changing the scraper:
+Use smoke run first when changing scraper:
 
 ```bash
 /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/full_scrape_sold_history.py --all-searches --limit-per-search 5 --image-mode html
@@ -111,43 +113,43 @@ Use a smoke run first when changing the scraper:
 
 ## Promotion Rule
 
-A search/model is qualified for paper-trading only if it passes the conservative gate:
+Search/model qualified for paper-trading only if pass conservative gate:
 
-- validation precision above threshold is at least 60%
-- test precision above threshold is at least 60%
-- validation precision@10 is at least 60%
-- test precision@10 is at least 60%
-- at least 20 validation items above threshold
-- at least 10 test items above threshold
-- threshold precision materially beats the base positive rate
+- validation precision above threshold >= 60%
+- test precision above threshold >= 60%
+- validation precision@10 >= 60%
+- test precision@10 >= 60%
+- >= 20 validation items above threshold
+- >= 10 test items above threshold
+- threshold precision materially beat base positive rate
 
-For the multi-approach sweep, the promotion gate is intentionally simpler and stricter:
+For multi-approach sweep, promotion gate intentionally simpler + stricter:
 
-- validation precision above threshold is at least 80%
-- test precision above threshold is at least 80%
-- validation precision@10 is at least 80%
-- test precision@10 is at least 80%
-- at least 20 validation items above threshold
-- at least 10 test items above threshold
+- validation precision above threshold >= 80%
+- test precision above threshold >= 80%
+- validation precision@10 >= 80%
+- test precision@10 >= 80%
+- >= 20 validation items above threshold
+- >= 10 test items above threshold
 - features must be computable at paper-trading time
-- no leakage columns are allowed
+- no leakage columns allowed
 
 ## Label Quality
 
-Historical data may not always contain exact sale timestamps.
+Historical data sometimes lack exact sale timestamps.
 
-For offline training, the main columns are:
+Offline training main columns:
 
-- `offline_sold_label`: 1 for sold, 0 for checked not sold.
-- `offline_label_eligible`: true when a row has an explicit sold/not-sold outcome.
+- `offline_sold_label`: 1 sold, 0 checked not sold.
+- `offline_label_eligible`: true when row got explicit sold/not-sold outcome.
 
-Timed fields such as `fast_sale_2d` and `fast_sale_7d` are kept only when timing is available, but they are not the offline training target.
+Timed fields like `fast_sale_2d` and `fast_sale_7d` kept only when timing available, but no the offline training target.
 
-The framework also tracks:
+Framework also track:
 
-- `exact`: row has a direct check/sold timestamp.
-- `approximate`: row has a useful proxy timestamp, such as queue/enqueue or file-level active check time.
-- `weak`: sale or active status exists, but timing is not strong enough for primary claims.
+- `exact`: row got direct check/sold timestamp.
+- `approximate`: row got useful proxy timestamp (queue/enqueue or file-level active check time).
+- `weak`: sale or active status exist, but timing too weak for primary claims.
 - `unlabeled`: no usable outcome yet.
 
 ## Run Notes
@@ -157,7 +159,7 @@ The framework also tracks:
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/train_offline.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches
 ```
 
 Run folder:
@@ -175,7 +177,7 @@ Result:
 - Threshold: 0.9656.
 - Feature policy: `snapshot_raw_v1`.
 
-Other searches did not pass the conservative gate. Several had useful threshold precision but failed precision@10 or sample-count checks.
+Other searches no pass conservative gate. Several got useful threshold precision but fail precision@10 or sample-count checks.
 
 Paper-trading snapshot:
 
@@ -188,18 +190,18 @@ Snapshot result:
 - `gucci` first-page candidates scored: 96.
 - Items tracked: 50.
 - Items above threshold in this snapshot: 0.
-- Top item probability: 0.9273, below the 0.9656 threshold.
+- Top item probability: 0.9273, below 0.9656 threshold.
 
 Interpretation:
 
-The offline result is good enough to continue paper-trading on `gucci`, but the threshold is intentionally very conservative. It is normal that some hourly first-page snapshots may produce no above-threshold items.
+Offline result good enough continue paper-trading on `gucci`, but threshold intentionally very conservative. Normal that some hourly first-page snapshots produce no above-threshold items.
 
 ### 2026-05-10 Nike And Gucci Rerun
 
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/train_offline.py --search nike --search gucci --no-auto-paper-trading
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --search nike --search gucci --no-auto-paper-trading
 ```
 
 Run folder:
@@ -210,9 +212,9 @@ data/experiments/deal_finder/offline_runs/offline_20260510_185509/
 
 Result:
 
-- `gucci` qualified again: validation precision 80.95% on 21 recommendations, test precision 80.00% on 20 recommendations, test precision@10 80.00%, threshold 0.9656.
-- `nike` qualified after fixing the high-base-rate promotion gate: validation precision 100.00% on 88 recommendations, test precision 100.00% on 102 recommendations, test precision@10 100.00%, threshold 0.7707.
-- The promotion gate now caps the required material improvement over base rate, so high-base-rate searches are not blocked by an impossible `2x base rate` requirement.
+- `gucci` qualified again: validation precision 80.95% on 21 recs, test precision 80.00% on 20 recs, test precision@10 80.00%, threshold 0.9656.
+- `nike` qualified after fix high-base-rate promotion gate: validation precision 100.00% on 88 recs, test precision 100.00% on 102 recs, test precision@10 100.00%, threshold 0.7707.
+- Promotion gate now cap required material improvement over base rate, so high-base-rate searches no blocked by impossible `2x base rate` requirement.
 
 Duplicate audit:
 
@@ -220,7 +222,7 @@ Duplicate audit:
 data/experiments/deal_finder/reports/duplicate_audit_latest.md
 ```
 
-The active `big_raw.csv` files contain small duplicate counts and are deduped by the experiment dataset builder before training. The largest duplicate counts are in archived pipeline/evaluation outputs.
+Active `big_raw.csv` files contain small duplicate counts and deduped by experiment dataset builder before training. Largest duplicate counts in archived pipeline/evaluation outputs.
 
 Paper-trading schedule:
 
@@ -228,21 +230,21 @@ Paper-trading schedule:
 data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/
 ```
 
-The first scheduled collection saved 96 Gucci candidates and 96 Nike candidates. The schedule runs once per hour via the transient user systemd timer `vinted-deal-nike-gucci-hourly.timer`.
+First scheduled collection saved 96 Gucci candidates + 96 Nike candidates. Schedule run once per hour via transient user systemd timer `vinted-deal-nike-gucci-hourly.timer`.
 
-On 2026-05-11, the active live run added a `gucci` threshold override:
+On 2026-05-11, active live run added `gucci` threshold override:
 
-- Offline logistic threshold remains `0.9656`.
-- Live paper-trading threshold is now `0.92`.
-- The override is stored in `data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/threshold_overrides.json`.
-- This does not retrain the model or edit model artifacts; it only makes live candidate selection less strict so we can collect a usable Gucci above-threshold sample.
+- Offline logistic threshold stay `0.9656`.
+- Live paper-trading threshold now `0.92`.
+- Override stored in `data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/threshold_overrides.json`.
+- No retrain model or edit model artifacts; only make live candidate selection less strict so can collect usable Gucci above-threshold sample.
 
 ### 2026-05-10 Multi-Approach Offline Sweep
 
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/deal_finder/model_sweep.py --all-searches --out-dir data/experiments/deal_finder/offline_runs/sweep_20260510_222252
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/model_sweep.py --all-searches --out-dir data/experiments/deal_finder/offline_runs/sweep_20260510_222252
 ```
 
 Run folder:
@@ -261,7 +263,7 @@ Approaches tried:
 - `rules_price_v1`
 - `visual_basic_v1`
 
-The sweep used stratified random 60/20/20 train/validation/test splits with seed `42`. It trained 56 approach/search rows and found 9 rows passing the 80% promotion gate.
+Sweep used stratified random 60/20/20 train/validation/test splits with seed `42`. Trained 56 approach/search rows and found 9 rows passing 80% promotion gate.
 
 Promotion candidates:
 
@@ -279,37 +281,37 @@ Promotion candidates:
 
 Recommended next paper-trading candidates:
 
-- `nike` remains strongly supported. The best non-visual sweep row was `linear_svm_calibrated_v1`, with 92.00% test precision and 90.00% test precision@10.
-- `ps4` is the strongest new non-visual candidate, using `numeric_tree_v1` with 88.89% test precision and 90.00% test precision@10.
-- `gucci` is already running live with Nike. The sweep found a visual candidate, but the visual result should be treated as secondary until paper-trading scoring computes the same image metrics.
-- `prada` looks excellent in the visual sweep, but it should not be added live until the live scorer supports the same image-derived numeric features.
+- `nike` stay strong supported. Best non-visual sweep row `linear_svm_calibrated_v1`, 92.00% test precision + 90.00% test precision@10.
+- `ps4` strongest new non-visual candidate, using `numeric_tree_v1` with 88.89% test precision + 90.00% test precision@10.
+- `gucci` already run live with Nike. Sweep found visual candidate, but visual result treated as secondary until paper-trading scoring compute same image metrics.
+- `prada` look excellent in visual sweep, but no add live until live scorer support same image-derived numeric features.
 
 Known limitations:
 
-- Offline labels are still sold/not-sold, not "sold within 2 days". The clean 2-day success label only comes from paper-trading.
-- `visual_basic_v1` was bounded to a 3,000-row stratified offline sample for large searches to avoid decoding every cached image during every sweep.
-- Visual promotion candidates are therefore useful signals, but less directly comparable than full-data non-visual candidates.
-- No new live search was started by this sweep.
+- Offline labels still sold/not-sold, no "sold within 2 days". Clean 2-day success label only come from paper-trading.
+- `visual_basic_v1` bounded to 3,000-row stratified offline sample for large searches to avoid decode every cached image during every sweep.
+- Visual promotion candidates therefore useful signals, but less directly comparable than full-data non-visual candidates.
+- No new live search started by this sweep.
 
 ### 2026-05-11 All-Search Model Benchmark
 
-The all-search benchmark runner is:
+All-search benchmark runner:
 
 ```text
-scripts/experiments/deal_finder/paper_trade_model_benchmark.py
+scripts/experiments/current/deal_finder/paper_trade_model_benchmark.py
 ```
 
-It is designed for comparing live behavior across searches and approaches without changing production CSV files. Each selected candidate is tracked using:
+Designed for compare live behavior across searches + approaches without change production CSV files. Each selected candidate tracked using:
 
 ```text
 SearchName + item_id + approach + threshold_label
 ```
 
-This keeps results independent when the same item is selected by multiple models or thresholds.
+Keep results independent when same item selected by multiple models or thresholds.
 
 Default threshold variants:
 
-- `strict`: the saved offline threshold.
+- `strict`: saved offline threshold.
 - `medium`: up to 0.05 lower than strict.
 - `loose`: up to 0.10 lower than strict.
 
@@ -319,22 +321,85 @@ Output folder:
 data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled/
 ```
 
-The benchmark records image-based models as skipped when live snapshots do not contain the same image-derived numeric features used offline. This keeps the comparison honest while still documenting that the model existed in the sweep.
+Benchmark record image-based models as skipped when live snapshots no contain same image-derived numeric features used offline. Keep comparison honest while still document model existed in sweep.
 
 First clean run on 2026-05-11:
 
 - Scored rows: 10,368.
 - Selected model-threshold rows: 621.
 - Search folders collected: `griffati_donna_all`, `griffati_uomo_all`, `gucci`, `nike`, `prada`, `ps4`.
-- Search folders skipped for collection: `Borse_Griffate`, `Scarpe_Griffate`, because they currently do not have active search/category settings in `data/searches.yaml`.
-- Skipped model family: `visual_basic_v1`, because live snapshots do not yet include the matching image-derived numeric features.
-- Active timer: `vinted-deal-all-models-benchmark-hourly.timer`, created separately from the Nike/Gucci timer.
+- Search folders skipped for collection: `Borse_Griffate`, `Scarpe_Griffate`, because currently no got active search/category settings in `data/searches.yaml`.
+- Skipped model family: `visual_basic_v1`, because live snapshots no yet include matching image-derived numeric features.
+- Active timer: `vinted-deal-all-models-benchmark-hourly.timer`, created separately from Nike/Gucci timer.
 
 Visual-feature feasibility on 2026-05-11:
 
 - Implemented optional live image features with `--enable-live-image-features`.
-- Images are cached only under the experiment live-run folder, not production scrape folders.
-- Gucci-only pass: 96 primary catalog images, 96 feature rows, about 39 seconds, about 3.5M image cache.
-- Full active-search pass: 576 primary catalog images, 576 feature rows, about 4 minutes, about 21M image cache.
-- Result: feasible for hourly benchmarking, but disk use should be monitored because image cache can grow by roughly tens of MB per hourly pass.
-- The active all-model benchmark timer now includes `--enable-live-image-features`.
+- Images cached only under experiment live-run folder, no production scrape folders.
+- Gucci-only pass: 96 primary catalog images, 96 feature rows, ~39 seconds, ~3.5M image cache.
+- Full active-search pass: 576 primary catalog images, 576 feature rows, ~4 minutes, ~21M image cache.
+- Result: feasible for hourly benchmark, but disk use must be monitored because image cache can grow ~tens of MB per hourly pass.
+- Active all-model benchmark timer now include `--enable-live-image-features`.
+
+### 2026-05-25 Basic 5 Giant Model
+
+Basic5 giant-model experiment train one global sold/not-sold model across six active searches:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/run.py
+```
+
+Evaluate nine Basic5 approach families in one combined `SearchName x label` stratified train/validation/test split. Inputs: `Price`, `Likes`, `Title`, `Brand`, `Size`, plus one-hot `SearchName` features so global model learn search-level differences without using full-scrape or visual fields.
+
+Outputs written under:
+
+```text
+data/experiments/basic_5_giant_model/offline_runs/
+```
+
+First full run:
+
+```text
+data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/
+```
+
+Result summary:
+
+- Rows: 34,347 total; 20,608 train; 6,869 validation; 6,870 test.
+- Best global AUC: `xgboost_basic_v1` with AUC `0.744`, PR AUC `0.762`, P@25 `1.000`.
+- Best fast numeric model: `hist_gradient_basic_numeric_v1` with AUC `0.737`, PR AUC `0.756`, P@25 `1.000`, much shorter fit time.
+- All approaches except `rules_price_v1` passed existing global promotion gate.
+- Global threshold conservative and uneven by search: selected many PS4 items but almost no `griffati_uomo_all` items, so follow-up should test per-search thresholds on giant model scores.
+
+Per-search threshold follow-up:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/report_per_search_thresholds.py --run-dir data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552
+```
+
+Outputs:
+
+```text
+data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_report.md
+data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_metrics.csv
+data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_comparison.csv
+```
+
+Main finding:
+
+- `xgboost_basic_v1` with per-search thresholds selected 290 held-out rows with 276 positives, precision `0.952`.
+- Single global XGBoost threshold had selected 140 held-out rows with precision `0.993`.
+- Per-search thresholds fix coverage gap: `griffati_uomo_all` moved from 0 selected rows to 25 selected rows at precision `0.800`; `prada` moved from 13 to 93 selected rows at precision `0.957`.
+- Best precision/count row by search used `hist_gradient_basic_numeric_v1` for both Griffati searches, `xgboost_basic_v1` for Gucci/Nike/PS4, `sgd_text_numeric_v1` for Prada.
+
+Weighted-voting follow-up:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/report_weighted_voting.py --run-dir data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552
+```
+
+Best weighted-voting row:
+
+- `auc_hard_weighted_vote` selected 258 held-out rows with 244 positives, precision `0.946`.
+- No beat `xgboost_basic_v1` with per-search thresholds, which selected 290 rows at precision `0.952`.
+- Detail tracking moved to `docs/BASIC_5_GIANT_MODEL.md`.

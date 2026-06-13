@@ -4,7 +4,7 @@ This branch is optimized for low-token Claude Code work with Graphify.
 
 ## Start Here
 
-Read `docs/AI_CONTEXT.md` for the compact project map. Do not read the full `wiki/`, `.obsidian/`, `data/`, or `graphify-out/` directories unless the user explicitly asks.
+Read `docs/AI_CONTEXT.md` for the compact project map. Do not read the full `wiki/`, `data/`, or `graphify-out/` directories unless the user explicitly asks.
 
 ## Graphify
 
@@ -31,12 +31,11 @@ graphify update . --force
 Do not scan these by default:
 
 - `data/`
-- `.obsidian/`
 - `wiki/`
 - `graphify-out/`
 - generated CSV, SQLite, model, report, image, and media artifacts
 
-The Obsidian/wiki files are personal narrative notes and are not the default context source on this branch.
+The wiki files are personal narrative notes and are not the default context source on this branch.
 
 ## Project
 

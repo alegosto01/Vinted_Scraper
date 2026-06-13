@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Mapping, Optional
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
@@ -55,6 +55,7 @@ def build_caption(item: Mapping[str, object]) -> str:
     brand = item.get("Brand") or None
     cond = item.get("Condition") or None
     url = (str(item.get("Link") or "")).strip()
+    reason = (str(item.get("RecommendationReason") or "")).strip()
 
     def esc(value: object) -> str | None:
         if value in (None, ""):
@@ -67,6 +68,8 @@ def build_caption(item: Mapping[str, object]) -> str:
     info_bits = [esc(bit) for bit in (price or None, size, brand, cond) if bit]
     if info_bits:
         lines.append(" • ".join(info_bits))
+    if reason:
+        lines.append(esc(reason) or "")
     if url:
         lines.append(esc(url) or "")
 
@@ -88,7 +91,8 @@ def build_generate_keyboard(cache_key: str) -> InlineKeyboardMarkup:
 
 def build_description_actions_keyboard(cache_key: str, description: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Regenerate", callback_data=f"regenerate_description:{cache_key}"),
+        InlineKeyboardButton("Regenerate", callback_data=f"regenerate_description:{cache_key}"),
+        InlineKeyboardButton("Copy", copy_text=CopyTextButton(description)),
     ]])
 
 

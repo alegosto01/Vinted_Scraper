@@ -88,6 +88,12 @@ class Simple_scraper(Scraper):
         )
         return ranked
 
+    def _title_matches_wrong_words(self, title, wrong_words):
+        if not wrong_words or not title:
+            return False
+        title_lower = title.lower()
+        return any(word.strip().lower() in title_lower for word in wrong_words if word.strip())
+
     def fetch_page_and_check(self, item, get_images=False, check_venduto=True, get_upload_date=False):
         return self.inspect_item_page(
             item,
@@ -147,6 +153,7 @@ class Simple_scraper(Scraper):
             'products_seen': 0,
             'products_valid': 0,
             'products_dropped': 0,
+            'products_excluded_wrong_words': 0,
         }
         webpage = self.create_webpage(dictionary)
 
@@ -186,6 +193,9 @@ class Simple_scraper(Scraper):
             for product in products:
                 row = self.extract_product_meta(product, all_likes_counts, page, search_count, get_images)
                 if row and self.validate_listing_row(row):
+                    if self._title_matches_wrong_words(row.get('Title'), dictionary.wrong_words):
+                        stats['products_excluded_wrong_words'] += 1
+                        continue
                     if get_images:
                         row = self._attach_local_catalog_images(row, dictionary.folder)
                     data.append(row)

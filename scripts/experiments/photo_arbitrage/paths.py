@@ -1,107 +1,13 @@
-from __future__ import annotations
+"""Compatibility wrapper for the moved experiment module."""
+from pathlib import Path as _Path
+import sys as _sys
+for _parent in _Path(__file__).resolve().parents:
+    if _parent.name == "scripts":
+        if str(_parent) not in _sys.path:
+            _sys.path.insert(0, str(_parent))
+        break
+from experiments._compat import export_module as _export_module, run_module_main as _run_module_main
+_export_module('experiments.current.photo_arbitrage.paths', globals())
 
-import json
-import subprocess
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
-
-
-ROOT = Path(__file__).resolve().parents[3]
-SCRIPTS_DIR = ROOT / "scripts"
-SIMPLE_SCRAPE_DIR = ROOT / "data" / "simple_scrape"
-EXPERIMENT_ROOT = ROOT / "data" / "experiments" / "photo_arbitrage"
-CANDIDATES_DIR = EXPERIMENT_ROOT / "candidates"
-FEATURES_DIR = EXPERIMENT_ROOT / "features"
-LABELS_DIR = EXPERIMENT_ROOT / "labels"
-MODELS_DIR = EXPERIMENT_ROOT / "models"
-REPORTS_DIR = EXPERIMENT_ROOT / "reports"
-MODEL_CACHE_DIR = EXPERIMENT_ROOT / "model_cache"
-
-
-def ensure_project_imports() -> None:
-    if str(SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS_DIR))
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def run_id(prefix: str) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return f"{prefix}_{stamp}"
-
-
-def ensure_experiment_dirs() -> None:
-    for path in (CANDIDATES_DIR, FEATURES_DIR, LABELS_DIR, MODELS_DIR, REPORTS_DIR, MODEL_CACHE_DIR):
-        path.mkdir(parents=True, exist_ok=True)
-
-
-def assert_photo_path(path: Path) -> Path:
-    resolved = path.resolve()
-    root = EXPERIMENT_ROOT.resolve()
-    if resolved != root and root not in resolved.parents:
-        raise ValueError(f"Refusing to write outside photo experiment root: {resolved}")
-    return resolved
-
-
-def write_csv(df, path: Path) -> Path:
-    path = assert_photo_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    df.to_csv(tmp, index=False)
-    tmp.replace(path)
-    return path
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> Path:
-    path = assert_photo_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
-    return path
-
-
-def read_json(path: Path, default: Any = None) -> Any:
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def git_text(args: list[str]) -> str:
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=ROOT,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-    except Exception as exc:
-        return f"<git unavailable: {type(exc).__name__}: {exc}>"
-    return result.stdout.strip()
-
-
-def git_snapshot() -> dict[str, Any]:
-    return {
-        "branch": git_text(["branch", "--show-current"]),
-        "status_short": git_text(["status", "--short"]),
-        "head": git_text(["rev-parse", "--short", "HEAD"]),
-    }
-
-
-def write_manifest(path: Path, *, command: str, extra: dict[str, Any] | None = None) -> Path:
-    payload = {
-        "created_at": utc_now_iso(),
-        "command": command,
-        "git": git_snapshot(),
-    }
-    if extra:
-        payload.update(extra)
-    return write_json(path, payload)
+if __name__ == "__main__":
+    raise SystemExit(_run_module_main('experiments.current.photo_arbitrage.paths'))

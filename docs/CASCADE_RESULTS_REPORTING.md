@@ -1,24 +1,26 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Cascade Results Reporting
 
-This document defines the preferred way to show live cascade results. Use it for
-the `benchmark_basic_to_full` cascade and for any future equivalent cascade
+Doc define preferred way show live cascade results. Use for
+`benchmark_basic_to_full` cascade + any future equivalent cascade
 runner.
 
 ## Goal
 
-The report should answer these questions clearly:
+Report answer these clear:
 
-- How many **unique** items passed model 1?
-- How many **unique** items passed model 2?
+- How many **unique** items pass model 1?
+- How many **unique** items pass model 2?
 - How many unique model-2 pass items sold?
 - How many unique model-2 reject items sold?
-- What are the thresholds for both models per search?
-- What is precision after 1h, 2h, 3h, 6h, 12h, 18h, 24h, and later windows?
-- In which elapsed-hour buckets did sold items actually sell?
+- Thresholds both models per search?
+- Precision after 1h, 2h, 3h, 6h, 12h, 18h, 24h, later windows?
+- Which elapsed-hour buckets sold items actual sell?
 
 ## Core Rule
 
-Always report model performance on **unique items**, not repeated scrape events.
+Always report model perf on **unique items**, not repeat scrape events.
 
 Unique item key:
 
@@ -26,54 +28,54 @@ Unique item key:
 (SearchName, item_id)
 ```
 
-Use `tracking_key` if present. If it is missing, rebuild it from:
+Use `tracking_key` if present. If missing, rebuild from:
 
 ```text
 SearchName.lower() + "::" + item_id
 ```
 
-Repeated hourly page-1 snapshots are useful for operational monitoring, but they
-must not inflate model performance counts.
+Repeat hourly page-1 snapshots good for ops monitoring, but
+must not inflate model perf counts.
 
 ## Time Window Rule
 
 Use **matured cohorts** for precision windows.
 
-For an `N` hour row, the denominator is:
+For `N` hour row, denominator =:
 
 ```text
 unique model-2 pass items that are at least N hours old
 ```
 
-The numerator is:
+Numerator =:
 
 ```text
 those denominator items that sold within N hours of first_stage1_pass_at
 ```
 
-This means denominators naturally decrease at later hours. That is expected:
-newer items are excluded until they are old enough for that checkpoint.
+Mean denominators shrink at later hours. Expected:
+new items excluded til old enough for checkpoint.
 
-Do not count young unsold items as failures for windows they have not reached
+No count young unsold items as fails for windows not reach
 yet.
 
 ## Required Tables
 
 ### Unique Funnel
 
-Show one row per search:
+One row per search:
 
 | Column | Meaning |
 | --- | --- |
 | `Search` | Search folder/name. |
-| `S1 thr` | Effective stage-1 threshold used in the live run. |
-| `S2 thr` | Effective stage-2 threshold used in the live run. |
-| `S1 pass` | Unique items that passed model 1. |
-| `S2 pass` | Unique items that passed model 2. |
-| `S2 sold` | Unique model-2 pass items that later sold. |
-| `Reject sold` | Unique stage-1 pass/model-2 reject items that later sold. |
+| `S1 thr` | Effective stage-1 threshold used in live run. |
+| `S2 thr` | Effective stage-2 threshold used in live run. |
+| `S1 pass` | Unique items pass model 1. |
+| `S2 pass` | Unique items pass model 2. |
+| `S2 sold` | Unique model-2 pass items later sold. |
+| `Reject sold` | Unique stage-1 pass/model-2 reject items later sold. |
 
-Also include a total row across searches.
+Also include total row across searches.
 
 Preferred Markdown shape:
 
@@ -91,8 +93,8 @@ Show final-model precision across all searches:
 | Column | Meaning |
 | --- | --- |
 | `Hour` | Elapsed hour checkpoint. |
-| `Sold` | Unique model-2 pass items sold within that hour window. |
-| `Matured items` | Unique model-2 pass items old enough for that window. |
+| `Sold` | Unique model-2 pass items sold within hour window. |
+| `Matured items` | Unique model-2 pass items old enough for window. |
 | `Precision` | `Sold / Matured items`. |
 
 Preferred checkpoints:
@@ -101,11 +103,11 @@ Preferred checkpoints:
 1h, 2h, 3h, 6h, 12h, 18h, 24h, 27h, 30h
 ```
 
-Add later checkpoints only when there are matured items.
+Add later checkpoints only when matured items exist.
 
 ### Per-Search Checkpoints
 
-Show compact cells for final-model precision per search:
+Compact cells for final-model precision per search:
 
 ```text
 sold/matured (precision%)
@@ -133,13 +135,13 @@ Show when sold items sold after first tracking:
 | --- | --- |
 | `Search` | Search folder/name. |
 | `Hour bucket` | Elapsed bucket, e.g. `1-2h`. |
-| `Sold in hour` | Unique final-model pass items sold in that bucket. |
+| `Sold in hour` | Unique final-model pass items sold in bucket. |
 
-This table answers "how many of them got sold for each hour".
+Table answer "how many got sold each hour".
 
 ## Required CSV Outputs
 
-When generating files, save these under the run's `reports/` folder:
+When gen files, save under run's `reports/` folder:
 
 ```text
 cascade_unique_latest_summary.csv
@@ -158,18 +160,18 @@ Use:
 <run_dir>/cascade_plan.csv
 ```
 
-Optional operational event counts can use:
+Optional ops event counts can use:
 
 ```text
 <run_dir>/events.jsonl
 <run_dir>/reports/cascade_collection_by_search_hour.csv
 ```
 
-But do not use event counts for the performance tables.
+No use event counts for perf tables.
 
 ## Implementation Notes
 
-Normalize booleans with values like:
+Normalize booleans w/ values like:
 
 ```text
 true, 1, 1.0, yes
@@ -180,49 +182,49 @@ Important timestamps:
 | Field | Use |
 | --- | --- |
 | `first_stage1_pass_at` | Start time for elapsed-hour windows. |
-| `sold_at` | Sold detection time. |
-| `last_seen_at` | Useful for deduping to the newest state. |
+| `sold_at` | Sold detect time. |
+| `last_seen_at` | Useful for dedup to newest state. |
 
 Important model fields:
 
 | Field | Use |
 | --- | --- |
-| `Stage1Threshold` | Effective threshold actually stored on tracked items. |
-| `Stage2Threshold` | Effective threshold actually stored on tracked items. |
+| `Stage1Threshold` | Effective threshold actual stored on tracked items. |
+| `Stage2Threshold` | Effective threshold actual stored on tracked items. |
 | `Stage2Passed` | Final model pass flag. |
-| `Stage2Score` | Whether stage 2 has scored the item. |
+| `Stage2Score` | Whether stage 2 scored item. |
 
-If thresholds are missing from tracked rows, fall back to `cascade_plan.csv`.
-If stage 1 had a configured offset in the runner, report the effective threshold
+If thresholds missing from tracked rows, fall back to `cascade_plan.csv`.
+If stage 1 had configured offset in runner, report effective threshold
 that appears on `tracked_items.csv`.
 
 ## Minimal Reproducible Algorithm
 
 1. Read `tracked_items.csv`.
 2. Build or use `tracking_key`.
-3. Sort by `last_seen_at` and keep the last row per `tracking_key`.
-4. Parse `Stage2Passed`, `Stage2Score`, `first_stage1_pass_at`, and `sold_at`.
-5. For the funnel:
+3. Sort by `last_seen_at` + keep last row per `tracking_key`.
+4. Parse `Stage2Passed`, `Stage2Score`, `first_stage1_pass_at`, `sold_at`.
+5. For funnel:
    - `S1 pass` = count unique rows.
-   - `S2 pass` = count unique rows with `Stage2Passed == true`.
-   - `S2 sold` = count unique rows with `Stage2Passed == true` and `sold_at`.
-   - `Reject sold` = count unique rows with `Stage2Passed != true` and `sold_at`.
+   - `S2 pass` = count unique rows w/ `Stage2Passed == true`.
+   - `S2 sold` = count unique rows w/ `Stage2Passed == true` + `sold_at`.
+   - `Reject sold` = count unique rows w/ `Stage2Passed != true` + `sold_at`.
 6. For each hour checkpoint:
    - Filter to final-model pass rows.
    - Denominator = rows where `now - first_stage1_pass_at >= checkpoint`.
-   - Numerator = denominator rows where `sold_at - first_stage1_pass_at <= checkpoint`.
+   - Numerator = denom rows where `sold_at - first_stage1_pass_at <= checkpoint`.
 7. For sold-hour buckets:
    - Compute `sold_elapsed_hours = sold_at - first_stage1_pass_at`.
    - Bucket into `0-1h`, `1-2h`, `2-3h`, etc.
-8. Print the three Markdown tables and write the CSV outputs.
+8. Print three Markdown tables + write CSV outputs.
 
 ## Interpretation
 
-When explaining the report, use these phrases:
+When explaining report, use these phrases:
 
-- "Unique" means deduplicated by `(SearchName, item_id)`.
-- "Matured items" means items old enough for that hour checkpoint.
-- Denominators shrink at later hours because fewer items have aged into those
+- "Unique" = dedup by `(SearchName, item_id)`.
+- "Matured items" = items old enough for hour checkpoint.
+- Denominators shrink at later hours cuz fewer items aged into those
   windows.
-- A row can include items first seen across many different hourly snapshots, but
-  each item is counted once.
+- Row can include items first seen across many different hourly snapshots, but
+  each item count once.

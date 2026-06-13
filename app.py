@@ -77,6 +77,25 @@ def pid_number_alive(pid: object) -> bool:
         return False
 
 
+def find_process_by_cmdline(*needles: str) -> int | None:
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return None
+    for proc_dir in proc_root.iterdir():
+        if not proc_dir.name.isdigit():
+            continue
+        try:
+            raw_cmdline = (proc_dir / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if not raw_cmdline:
+            continue
+        cmdline = raw_cmdline.replace(b"\0", b" ").decode(errors="replace")
+        if all(needle in cmdline for needle in needles):
+            return int(proc_dir.name)
+    return None
+
+
 def tail_log(path: Path, n: int = 60) -> str:
     if not path.exists():
         return "(log file not found)"
@@ -290,7 +309,7 @@ def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.
     unique["_sold_at"] = unique["_tracking_key"].map(sold_at_by_key)
 
     now = pd.Timestamp(_now_utc())
-    checkpoints = [1, 6, 12, 24, 30, 36, 39, 42, 45, 48, 60, 72]
+    checkpoints = [2, 4, 6, 12, 24, 48, 72]
     rows = []
     for search, group in unique.groupby("SearchName", dropna=False):
         passed = group[group["_stage2_passed"]]
@@ -320,7 +339,7 @@ def load_cascade_results(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.
         "_first_at",
         "_sold_at",
         now,
-        [1, 2, 3, 6, 12, 18, 24, 27, 30, 33, 36, 39, 42, 45, 48, 60, 72],
+        [2, 4, 6, 12, 24, 48, 72],
     )
     buckets = sold_hour_buckets(stage2_passed, "_first_at", "_sold_at")
 
@@ -462,6 +481,12 @@ def load_time_to_sell_collector(run_dir: Path) -> dict:
     selected_at = pd.to_datetime(tracked.get("selected_at"), errors="coerce", utc=True) if "selected_at" in tracked.columns else pd.Series(pd.NaT, index=tracked.index)
     rechecked_at = pd.to_datetime(tracked.get("last_rechecked_at"), errors="coerce", utc=True) if "last_rechecked_at" in tracked.columns else pd.Series(pd.NaT, index=tracked.index)
     pid = daemon.get("pid") or status.get("pid")
+    running = pid_number_alive(pid)
+    if not running:
+        detected_pid = find_process_by_cmdline("live_bin_collector.py", str(run_dir.resolve()))
+        if detected_pid is not None:
+            pid = detected_pid
+            running = True
 
     return {
         "tracked": tracked,
@@ -471,7 +496,7 @@ def load_time_to_sell_collector(run_dir: Path) -> dict:
         "plan": plan if plan is not None else pd.DataFrame(),
         "balance": balance if balance is not None else pd.DataFrame(),
         "failures": failures if failures is not None else pd.DataFrame(),
-        "running": pid_number_alive(pid),
+        "running": running,
         "pid": pid,
         "log_path": log_path,
         "events_path": events_path,
@@ -547,10 +572,13 @@ show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 PHOTO_DATASET = ROOT / "data" / "experiments" / "photo_arbitrage" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
 PHOTO_LABELS = ROOT / "data" / "experiments" / "photo_arbitrage" / "labels" / "photo_quality_labels.csv"
 
-tab_scrape, tab_bench, tab_tts, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
+GIANT_MODEL_LIVE_RUNS = ROOT / "data" / "experiments" / "basic_5_giant_model" / "live_scoring"
+
+tab_scrape, tab_bench, tab_tts, tab_giant, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
     "Live Scraping",
     "Benchmark (Cascade)",
     "Time-to-Sell Collector",
+    "Giant Model Live",
     "Model Results",
     "Eventual Sales",
     "Telegram",
@@ -596,10 +624,11 @@ with tab_scrape:
 
 with tab_bench:
     bench_log_age = min(file_age(CASCADE_LOG), file_age(CASCADE_LOOP_LOG))
-    # PID file may be stale after a manual restart; treat recent log activity as running too
-    bench_running = pid_alive(CASCADE_PID) or bench_log_age < 90
+    # Cascade is stopped; do not rely on stale PID/log files
+    bench_running = False
 
     status_row("Cascade Benchmark", bench_running, age_str(bench_log_age))
+    st.warning("Cascade is currently stopped.")
 
     # ── manifest info ──────────────────────────────────────────────────────
     manifest = read_json_safe(CASCADE_MANIFEST)
@@ -775,7 +804,7 @@ with tab_tts:
             st.info("No bin-balance report yet. It appears after the first report pass.")
         else:
             available_windows = sorted(pd.to_numeric(balance.get("hours"), errors="coerce").dropna().astype(int).unique())
-            default_windows = [h for h in [1, 12, 24, 48, 72] if h in available_windows] or available_windows[:5]
+            default_windows = [h for h in [2, 4, 6, 12, 24, 48, 72] if h in available_windows] or available_windows[:5]
             selected_windows = st.multiselect(
                 "Windows",
                 options=available_windows,
@@ -891,7 +920,245 @@ with tab_tts:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Model Results
+# TAB 4 — Giant Model Live
+# ════════════════════════════════════════════════════════════════════════════
+
+with tab_giant:
+    ALL_GIANT_SEARCHES = "__all__"
+
+    def latest_giant_live_run() -> Path | None:
+        candidates = sorted(
+            (p for p in GIANT_MODEL_LIVE_RUNS.glob("live_scoring_*") if p.is_dir() and (p / "manifest.json").exists()),
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+    giant_run = latest_giant_live_run()
+    if giant_run is None:
+        st.info("No live giant-model scoring runs found yet.")
+    else:
+        manifest = read_json_safe(giant_run / "manifest.json") or {}
+        summary_path = giant_run / "live_scored_summary.csv"
+        performance_path = giant_run / "live_scored_window_performance.csv"
+        scored_path = giant_run / "live_scored_items.csv"
+
+        st.caption(f"Run: `{giant_run.name}`")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Offline run", manifest.get("offline_run", "—"))
+        col2.metric("Models", len(manifest.get("approaches", [])) or ("1" if manifest.get("model") else "—"))
+        col3.metric("Scored rows", count_csv_rows(scored_path))
+        col4.metric("Scored", age_str(file_age(scored_path)))
+
+        summary_df = pd.read_csv(summary_path, low_memory=False) if summary_path.exists() else pd.DataFrame()
+        performance_df = pd.read_csv(performance_path, low_memory=False) if performance_path.exists() else pd.DataFrame()
+        scored_df = pd.read_csv(scored_path, low_memory=False) if scored_path.exists() else pd.DataFrame()
+
+        if not summary_df.empty and "approach" not in summary_df.columns:
+            summary_df["approach"] = "xgboost_basic_v1"
+        if not performance_df.empty and "approach" not in performance_df.columns:
+            performance_df["approach"] = "xgboost_basic_v1"
+            performance_df["search_name"] = ALL_GIANT_SEARCHES
+
+        approaches = manifest.get("approaches") or sorted(summary_df.get("approach", pd.Series(dtype=str)).dropna().astype(str).unique())
+        searches = sorted(summary_df.get("search_name", pd.Series(dtype=str)).dropna().astype(str).unique())
+        available_windows = sorted(pd.to_numeric(performance_df.get("hours", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).unique())
+        preferred_windows = [h for h in [72, 48, 24, 12, 6, 4, 2, 1] if h in available_windows]
+        selected_window = st.selectbox(
+            "Outcome window",
+            options=preferred_windows or available_windows or [72],
+            index=0,
+            key="giant_model_window",
+        )
+
+        if not performance_df.empty:
+            total_passed = summary_df.groupby("approach", as_index=False)["passed"].sum().rename(columns={"passed": "passed_total"})
+            overall = performance_df[
+                performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
+                & performance_df["hours"].eq(selected_window)
+            ].merge(total_passed, on="approach", how="left")
+            st.subheader(f"Model comparison at {selected_window}h")
+            st.dataframe(
+                overall[
+                    [c for c in ["approach", "passed_total", "evaluated", "sold", "precision", "coverage"] if c in overall.columns]
+                ].sort_values(["precision", "sold", "evaluated", "passed_total"], ascending=[False, False, False, False], na_position="last"),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "precision": st.column_config.NumberColumn(format="%.3f"),
+                    "coverage": st.column_config.NumberColumn(format="%.3f"),
+                },
+            )
+
+        if approaches:
+            selected_approach = st.selectbox(
+                "Model",
+                options=list(approaches),
+                index=list(approaches).index("xgboost_basic_v1") if "xgboost_basic_v1" in approaches else 0,
+                key="giant_model_approach",
+            )
+            comparison_search = st.selectbox(
+                "Compare search",
+                options=["All searches", *searches],
+                index=0,
+                key="giant_model_search_compare",
+            )
+
+            st.subheader("Per-search model comparison")
+            comparison = summary_df.copy()
+            if not performance_df.empty:
+                search_perf = performance_df[
+                    ~performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
+                    & performance_df["hours"].eq(selected_window)
+                ]
+                comparison = comparison.merge(
+                    search_perf[["approach", "search_name", "evaluated", "sold", "precision", "coverage"]],
+                    on=["approach", "search_name"],
+                    how="left",
+                )
+            if comparison_search != "All searches":
+                comparison = comparison[comparison["search_name"].eq(comparison_search)]
+            comparison_cols = [
+                "approach",
+                "search_name",
+                "threshold",
+                "passed",
+                "pass_rate",
+                "evaluated",
+                "sold",
+                "precision",
+                "mean_score",
+                "p95_score",
+                "max_score",
+                "max_margin",
+            ]
+            st.dataframe(
+                comparison[[c for c in comparison_cols if c in comparison.columns]].sort_values(
+                    ["search_name", "precision", "sold", "passed"],
+                    ascending=[True, False, False, False],
+                    na_position="last",
+                ),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "threshold": st.column_config.NumberColumn(format="%.4f"),
+                    "pass_rate": st.column_config.NumberColumn(format="%.3f"),
+                    "precision": st.column_config.NumberColumn(format="%.3f"),
+                    "mean_score": st.column_config.NumberColumn(format="%.4f"),
+                    "p95_score": st.column_config.NumberColumn(format="%.4f"),
+                    "max_score": st.column_config.NumberColumn(format="%.4f"),
+                    "max_margin": st.column_config.NumberColumn(format="%.4f"),
+                },
+            )
+
+            model_summary = summary_df[summary_df["approach"].eq(selected_approach)].copy()
+            if not performance_df.empty:
+                model_perf = performance_df[
+                    performance_df["approach"].eq(selected_approach)
+                    & ~performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
+                    & performance_df["hours"].eq(selected_window)
+                ]
+                model_summary = model_summary.merge(
+                    model_perf[["search_name", "evaluated", "sold", "precision", "coverage"]],
+                    on="search_name",
+                    how="left",
+                )
+
+            st.subheader(f"{selected_approach} search details")
+            st.dataframe(
+                model_summary[
+                    [
+                        c
+                        for c in [
+                            "search_name",
+                            "threshold",
+                            "total_tracked",
+                            "passed",
+                            "pass_rate",
+                            "evaluated",
+                            "sold",
+                            "precision",
+                            "mean_score",
+                            "p90_score",
+                            "p95_score",
+                            "max_score",
+                            "max_margin",
+                            "within_0_05_below",
+                        ]
+                        if c in model_summary.columns
+                    ]
+                ],
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "threshold": st.column_config.NumberColumn(format="%.4f"),
+                    "pass_rate": st.column_config.NumberColumn(format="%.3f"),
+                    "precision": st.column_config.NumberColumn(format="%.3f"),
+                    "mean_score": st.column_config.NumberColumn(format="%.4f"),
+                    "p90_score": st.column_config.NumberColumn(format="%.4f"),
+                    "p95_score": st.column_config.NumberColumn(format="%.4f"),
+                    "max_score": st.column_config.NumberColumn(format="%.4f"),
+                    "max_margin": st.column_config.NumberColumn(format="%.4f"),
+                },
+            )
+
+            pass_col = f"pass__{selected_approach}"
+            score_col = f"score__{selected_approach}"
+            threshold_col = f"threshold__{selected_approach}"
+            if pass_col not in scored_df.columns and selected_approach == "xgboost_basic_v1":
+                pass_col = "xgboost_pass"
+                score_col = "xgboost_score"
+                threshold_col = "xgboost_threshold"
+
+            if pass_col in scored_df.columns:
+                passed = scored_df[scored_df[pass_col] == True].copy()
+                item_search = st.selectbox(
+                    "Passed item search",
+                    options=["All searches", *searches],
+                    index=0,
+                    key="giant_model_passed_item_search",
+                )
+                if item_search != "All searches":
+                    passed = passed[passed["SearchName"].astype(str).eq(item_search)]
+                st.subheader(f"Passed items ({len(passed)})")
+                if passed.empty:
+                    st.info("No items passed this model/search threshold yet.")
+                else:
+                    show_cols = [
+                        "SearchName",
+                        "Title",
+                        "Brand",
+                        "Price",
+                        "Likes",
+                        score_col,
+                        threshold_col,
+                        "last_recheck_status",
+                        "sold_at",
+                        "Link",
+                    ]
+                    available = [c for c in show_cols if c in passed.columns]
+                    col_cfg = {}
+                    if "Link" in available:
+                        col_cfg["Link"] = st.column_config.LinkColumn("Link", display_text="Open")
+                    if score_col in available:
+                        col_cfg[score_col] = st.column_config.NumberColumn("Score", format="%.4f")
+                    if threshold_col in available:
+                        col_cfg[threshold_col] = st.column_config.NumberColumn("Threshold", format="%.4f")
+                    st.dataframe(
+                        passed[available].sort_values(score_col, ascending=False),
+                        width="stretch",
+                        hide_index=True,
+                        column_config=col_cfg,
+                    )
+
+                if score_col in scored_df.columns:
+                    with st.expander("Mean score by search", expanded=False):
+                        st.bar_chart(scored_df.groupby("SearchName")[score_col].mean().sort_values(ascending=False))
+            else:
+                st.warning(f"No pass column found for `{selected_approach}` in `{scored_path.name}`.")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Model Results
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_results:
@@ -923,7 +1190,7 @@ with tab_results:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Eventual Sales
+# TAB 6 — Eventual Sales
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_eventual:
@@ -991,7 +1258,7 @@ with tab_eventual:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Telegram
+# TAB 7 — Telegram
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_telegram:
@@ -1098,7 +1365,7 @@ with tab_telegram:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 6 — Photo Labeling
+# TAB 8 — Photo Labeling
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_photo:

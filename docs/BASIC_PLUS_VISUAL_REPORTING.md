@@ -1,26 +1,26 @@
+> ⚠️ **Caveman-compressed** — terse/fragment style to save tokens. Technical substance, code, commands, URLs kept verbatim. Original backed up under `~/.local/share/caveman-compress/backups/`.
+
 # Basic + Visual Results Reporting
 
-This document defines the preferred way to show live results for the
-`basic_plus_visual` experiment.
+Doc define preferred way show live results for `basic_plus_visual` experiment.
 
-Use this report style whenever asked to show Basic + Visual model results.
+Use this report style when ask show Basic + Visual model results.
 
 ## Goal
 
-The report should answer these questions clearly:
+Report answer these clearly:
 
-- How many unique items were scored?
-- How many unique items passed the model threshold?
-- How many unique items were actually tracked and rechecked?
+- How many unique items scored?
+- How many unique items pass model threshold?
+- How many unique items tracked + rechecked?
 - How many tracked items sold?
-- What threshold was used for each search?
-- What is the realised precision after 1h, 2h, 3h, 6h, 12h, 18h, 24h, and later
-  matured windows?
-- In which elapsed-hour buckets did tracked sold items actually sell?
+- What threshold used per search?
+- Realised precision after 1h, 2h, 3h, 6h, 12h, 18h, 24h, later matured windows?
+- Which elapsed-hour buckets tracked sold items actually sold?
 
 ## Single-Stage Mapping
 
-Basic + Visual is a single-stage model. There is no second model.
+Basic + Visual = single-stage model. No second model.
 
 Use these names in reports:
 
@@ -31,12 +31,11 @@ Use these names in reports:
 | Final selected set | `tracked_items.csv`, meaning selected items that are rechecked. |
 | Final precision | Sold rate among unique tracked items. |
 
-Precision is only meaningful for tracked items, because only tracked items are
-rechecked for sold status.
+Precision only meaningful for tracked items, cuz only tracked items rechecked for sold status.
 
 ## Core Rule
 
-Always report model performance on **unique items**, not repeated scrape events.
+Always report model perf on **unique items**, not repeated scrape events.
 
 Unique item key:
 
@@ -44,44 +43,39 @@ Unique item key:
 (SearchName, item_id)
 ```
 
-Use `Dataid` if `item_id` is missing.
+Use `Dataid` if `item_id` missing.
 
-Repeated hourly page-1 snapshots are useful for operational load monitoring, but
-they must not inflate model quality counts.
+Repeated hourly page-1 snapshots useful for ops load monitor, but must not inflate model quality counts.
 
 ## Measured Universe
 
-Use `tracked_items.csv` as the measured selected universe.
+Use `tracked_items.csv` as measured selected universe.
 
-This matters because some live runs may include selections created under more
-than one selection policy. Reconstructing top-N selections from scored snapshot
-files may not match the actual tracked file. When that happens:
+Matter cuz some live runs may include selections from >1 selection policy. Reconstructing top-N selections from scored snapshot files may not match actual tracked file. When happen:
 
-- Use scored snapshot files for `unique_scored` and `unique_threshold_pass`.
-- Use `tracked_items.csv` for `unique_tracked`, `tracked_sold`, and precision.
-- State the caveat briefly in the final answer.
+- Use scored snapshot files for `unique_scored` + `unique_threshold_pass`.
+- Use `tracked_items.csv` for `unique_tracked`, `tracked_sold`, precision.
+- State caveat briefly in final answer.
 
 ## Time Window Rule
 
 Use **matured cohorts** for precision windows.
 
-For an `N` hour row, the denominator is:
+For `N` hour row, denominator =:
 
 ```text
 unique tracked items that are at least N hours old
 ```
 
-The numerator is:
+Numerator =:
 
 ```text
 those denominator items that sold within N hours of first tracking
 ```
 
-Denominators naturally decrease at later hours because fewer items have aged
-into those windows.
+Denominators naturally shrink at later hours cuz fewer items aged into those windows.
 
-Do not count young unsold items as failures for windows they have not reached
-yet.
+Do not count young unsold items as failures for windows they not reached yet.
 
 ## Required Tables
 
@@ -98,7 +92,7 @@ Show one row per search:
 | `Tracked` | Unique items in `tracked_items.csv`. |
 | `Sold` | Unique tracked items with sold status detected. |
 
-Also include a total row across searches.
+Also include total row across searches.
 
 Preferred Markdown shape:
 
@@ -126,7 +120,7 @@ Preferred checkpoints:
 1h, 2h, 3h, 6h, 12h, 18h, 24h
 ```
 
-Add `27h`, `30h`, and later windows only when there are matured items.
+Add `27h`, `30h`, later windows only when matured items exist.
 
 ### Sold Hour Buckets
 
@@ -138,11 +132,11 @@ Show when tracked sold items sold after first tracking:
 | `Hour bucket` | Elapsed bucket, e.g. `1-2h`. |
 | `Sold in hour` | Unique tracked items sold in that bucket. |
 
-This table answers "how many of them got sold for each hour".
+Table answer "how many got sold per hour".
 
 ## Preferred Chat Summary
 
-Use this shape in the final answer.
+Use this shape in final answer.
 
 ```text
 I generated the Basic + Visual report in the same unique/matured style:
@@ -186,17 +180,17 @@ as the measured universe. Threshold-pass items that were not tracked do not have
 sold labels, so precision is only meaningful on `unique_tracked`.
 ```
 
-The example numbers above are from:
+Example numbers above from:
 
 ```text
 data/experiments/basic_plus_visual/live_runs/basic_plus_visual_live_20260519_051311/
 ```
 
-generated on `2026-05-20 07:24 CEST`.
+generated `2026-05-20 07:24 CEST`.
 
 ## Required CSV Outputs
 
-When generating files, save these under the run's `reports/` folder:
+When gen files, save under run's `reports/` folder:
 
 ```text
 basic_plus_visual_tracked_latest_summary.csv
@@ -217,7 +211,7 @@ Use:
 <run_dir>/reports/recheck_*.csv
 ```
 
-Optional operational event counts can use:
+Optional ops event counts can use:
 
 ```text
 <run_dir>/events.jsonl
@@ -251,15 +245,11 @@ But do not use event counts for precision.
 
 ## Interpretation
 
-When explaining the report, use these phrases:
+When explain report, use these phrases:
 
-- "Unique" means deduplicated by `(SearchName, item_id)`.
-- "Threshold pass" means the item crossed the per-search Basic + Visual model
-  threshold.
-- "Tracked" means the item entered `tracked_items.csv` and is eligible for sold
-  rechecks.
-- "Matured items" means tracked items old enough for that hour checkpoint.
-- Denominators shrink at later hours because fewer tracked items have aged into
-  those windows.
-- A row can include items first seen across many hourly snapshots, but each item
-  is counted once.
+- "Unique" = deduplicated by `(SearchName, item_id)`.
+- "Threshold pass" = item crossed per-search Basic + Visual model threshold.
+- "Tracked" = item entered `tracked_items.csv` + eligible for sold rechecks.
+- "Matured items" = tracked items old enough for that hour checkpoint.
+- Denominators shrink at later hours cuz fewer tracked items aged into those windows.
+- A row can include items first seen across many hourly snapshots, but each item counted once.
