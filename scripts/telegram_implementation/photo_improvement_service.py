@@ -4,10 +4,36 @@ import asyncio
 import base64
 import io
 import os
+import re
+import time
 
 import requests
 
 PHOTO_EDIT_MODEL = "gpt-image-2"
+
+# OpenAI org-level limit for gpt-image-2 input images is 5/min. Throttle our
+# own calls to that rate so concurrent photo-improvement requests queue up
+# instead of all hitting the API at once and getting 429s.
+_RATE_LIMIT_MAX_CALLS = 5
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_RETRY_AFTER_RE = re.compile(r"try again in ([\d.]+)s", re.IGNORECASE)
+
+_rate_limit_lock = asyncio.Lock()
+_call_timestamps: list[float] = []
+
+
+async def _acquire_rate_limit_slot() -> None:
+    """Block until issuing another gpt-image-2 call stays within the 5/min limit."""
+    while True:
+        async with _rate_limit_lock:
+            now = time.monotonic()
+            _call_timestamps[:] = [t for t in _call_timestamps if now - t < _RATE_LIMIT_WINDOW_SECONDS]
+            if len(_call_timestamps) < _RATE_LIMIT_MAX_CALLS:
+                _call_timestamps.append(now)
+                return
+            wait_time = _RATE_LIMIT_WINDOW_SECONDS - (now - _call_timestamps[0]) + 0.5
+        await asyncio.sleep(wait_time)
+
 
 _GEMINI_VISION_MODEL = "gemini-2.0-flash"
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -73,7 +99,7 @@ def build_improvement_prompt(item_context: str | None = None) -> str:
     return _IMPROVEMENT_PROMPT
 
 
-async def improve_photo(image_bytes: bytes, item_context: str | None = None) -> bytes:
+async def improve_photo(image_bytes: bytes, item_context: str | None = None, *, max_retries: int = 3) -> bytes:
     """
     Send image_bytes to gpt-image-2 for marketplace photo improvement.
     Returns improved image bytes. Raises on any API error.
@@ -90,10 +116,9 @@ async def improve_photo(image_bytes: bytes, item_context: str | None = None) -> 
     client = openai.OpenAI(api_key=api_key)
     prompt = build_improvement_prompt(item_context)
 
-    img_file = io.BytesIO(image_bytes)
-    img_file.name = "photo.jpg"
-
     def _call_api():
+        img_file = io.BytesIO(image_bytes)
+        img_file.name = "photo.jpg"
         result = client.images.edit(
             model=PHOTO_EDIT_MODEL,
             image=img_file,
@@ -104,7 +129,18 @@ async def improve_photo(image_bytes: bytes, item_context: str | None = None) -> 
         )
         return base64.b64decode(result.data[0].b64_json)
 
-    return await asyncio.to_thread(_call_api)
+    for attempt in range(max_retries + 1):
+        await _acquire_rate_limit_slot()
+        try:
+            return await asyncio.to_thread(_call_api)
+        except openai.RateLimitError as exc:
+            if attempt >= max_retries:
+                raise
+            match = _RATE_LIMIT_RETRY_AFTER_RE.search(str(exc))
+            wait_time = float(match.group(1)) + 0.5 if match else _RATE_LIMIT_WINDOW_SECONDS
+            await asyncio.sleep(wait_time)
+
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 async def extract_item_context_from_screenshot(image_bytes: bytes) -> str:

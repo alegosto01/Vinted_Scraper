@@ -7,6 +7,8 @@ code paths.
 
 - `basic_5_giant_model`: scores the live collector output and sends Telegram
   recommendations.
+- `giant_basic_visual`: shadow-only test of adding main-image-only visual
+  features to the Basic5 giant model.
 - `time_to_sell`: collects high-score/control cohorts and rechecks sale status.
 
 ## Current support code
@@ -22,4 +24,3 @@ code paths.
 
 Old import paths under `scripts/experiments/<package>` remain as compatibility
 wrappers during the transition.
-

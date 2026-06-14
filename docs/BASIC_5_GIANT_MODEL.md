@@ -84,3 +84,15 @@ Telefoni test metrics (508 rows, base rate 0.638): `xgboost_basic_v1` selects 90
 ## Current Decision
 
 Use `xgboost_basic_v1` with per-search thresholds as the current best single giant-model candidate. Keep the best-per-search mix as a precision-oriented alternative if lower coverage is acceptable.
+
+## Main-Image Visual Shadow
+
+`giant_basic_visual` tests whether main-image-only features improve the Basic5
+giant model on the same filtered rows and split:
+
+```bash
+/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/giant_basic_visual/run.py --limit-rows 50
+```
+
+This is shadow-only. It does not change Telegram sending. See
+`docs/GIANT_BASIC_VISUAL.md`.

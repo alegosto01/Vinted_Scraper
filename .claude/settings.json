@@ -31,6 +31,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/caveman/caveman-activate.js\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

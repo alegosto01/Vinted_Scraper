@@ -12,6 +12,7 @@ __pycache__/
 !.env.example
 .venv/
 venv/
+.venv_analysis/
 .ipynb_checkpoints/
 
 # OS / editor noise
@@ -104,6 +105,7 @@ data/experiments/
 # Experiment outputs
 scripts/experiments/**/reports/
 scripts/experiments/**/runs/
+experiments/**/data/
 
 # Other generated outputs
 deal_score_eval/

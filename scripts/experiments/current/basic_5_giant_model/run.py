@@ -173,6 +173,8 @@ def select_basic5_features(
         numeric = [col for col in ("price_num", "likes_num", "page_num", "Price", "Likes", "Page") if col in train_df.columns]
         return numeric, []
     numeric = [col for col in BASIC_NUMERIC if col in train_df.columns]
+    if spec.use_engineered:
+        numeric.extend(col for col in base_sweep.ENGINEERED_NUMERIC if col in train_df.columns and col not in numeric)
     numeric.extend(col for col in search_onehot_cols if col in train_df.columns)
     text = [col for col in BASIC_TEXT if spec.use_text and _has_text_signal(train_df, col)]
     numeric = base_sweep.safe_selected_features(numeric, train_df)

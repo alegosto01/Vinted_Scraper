@@ -25,6 +25,10 @@ from experiments.time_to_sell.paths import (
     utc_now_iso,
     write_manifest,
 )
+from experiments.current.time_to_sell.text_features import (
+    TITLE_FEATURE_COLUMNS,
+    add_title_features,
+)
 
 
 DEFAULT_CASCADE_RUN = (
@@ -84,6 +88,57 @@ BASIC5_COLUMNS = (
     "Stage2Status",
     "FullScrapeStatus",
     "QualityMethodStatus",
+    "Description",
+    "Condition",
+    "Upload_date",
+    "Interested_count",
+    "View_count",
+    "SellerName",
+    "SellerId",
+    "Location",
+    "ReviewsCount",
+    "Stars",
+    "PictureCount",
+    "VisiblePictureCount",
+    "HiddenPictureCount",
+)
+FULL_SCRAPE_ENRICHMENT_COLUMNS = (
+    "Dataid",
+    "Images",
+    "Page",
+    "SearchDate",
+    "SearchCount",
+    "MarketStatus",
+    "Processed",
+    "snapshot_at",
+    "Stage1Passed",
+    "Stage1Rank",
+    "Stage1Margin",
+    "FullScrapeReason",
+    "FullScrapeStatus",
+    "Description",
+    "Condition",
+    "Upload_date",
+    "Interested_count",
+    "View_count",
+    "SellerName",
+    "SellerId",
+    "Location",
+    "ReviewsCount",
+    "Stars",
+    "PictureCount",
+    "VisiblePictureCount",
+    "HiddenPictureCount",
+    "PrimaryImageUrl",
+    "FullImageUrls",
+    "FullScrapedAt",
+)
+TEXT_ENRICHMENT_COLUMNS = (
+    "TitleText",
+    "DescriptionText",
+    "description_char_len",
+    "description_token_count",
+    *TITLE_FEATURE_COLUMNS,
 )
 
 
@@ -238,9 +293,15 @@ def label_columns(windows: list[int]) -> list[str]:
 
 
 def build_basic5(labels: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    columns = [column for column in BASIC5_COLUMNS if column in labels.columns]
+    featured = add_text_enrichment_features(labels)
+    columns = [column for column in BASIC5_COLUMNS if column in featured.columns]
+    columns.extend(
+        column
+        for column in (*FULL_SCRAPE_ENRICHMENT_COLUMNS, *TEXT_ENRICHMENT_COLUMNS)
+        if column in featured.columns and column not in columns
+    )
     columns.extend(column for column in label_columns(windows) if column in labels.columns and column not in columns)
-    return labels[columns].copy()
+    return featured[columns].copy()
 
 
 def read_csv_if_useful(path: Path) -> pd.DataFrame | None:
@@ -263,6 +324,62 @@ def sort_columns_for_latest(frame: pd.DataFrame) -> pd.DataFrame:
     return sorted_frame.sort_values([f"__sort_{column}" for column in sort_columns])
 
 
+def has_value(value: object) -> bool:
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if value is None:
+        return False
+    return str(value).strip().lower() not in {"", "nan", "none", "<na>"}
+
+
+def add_text_enrichment_features(frame: pd.DataFrame) -> pd.DataFrame:
+    out = add_title_features(frame)
+    title = out["Title"] if "Title" in out.columns else pd.Series([""] * len(out), index=out.index)
+    description = (
+        out["Description"] if "Description" in out.columns else pd.Series([""] * len(out), index=out.index)
+    )
+    out["TitleText"] = title.fillna("").astype(str)
+    out["DescriptionText"] = description.fillna("").astype(str)
+    out["description_char_len"] = out["DescriptionText"].str.len()
+    out["description_token_count"] = out["DescriptionText"].str.findall(r"[A-Za-z0-9]+").str.len()
+    return out
+
+
+def load_full_enrichment(cascade_run: Path) -> pd.DataFrame:
+    enriched_path = cascade_run / "full_items" / "items_enriched.csv"
+    enriched = read_csv_if_useful(enriched_path)
+    if enriched is None or enriched.empty:
+        return pd.DataFrame()
+    enriched = enriched.copy()
+    enriched["tracking_key"] = derive_key(enriched)
+    enriched = sort_columns_for_latest(enriched)
+    drop_sort = [column for column in enriched.columns if column.startswith("__sort_")]
+    return enriched.drop_duplicates("tracking_key", keep="last").drop(columns=drop_sort, errors="ignore")
+
+
+def merge_full_enrichment(labels: pd.DataFrame, cascade_run: Path) -> pd.DataFrame:
+    enrichment = load_full_enrichment(cascade_run)
+    if labels.empty or enrichment.empty:
+        return labels
+    out = labels.copy()
+    if "tracking_key" not in out.columns:
+        out["tracking_key"] = derive_key(out)
+    enrichment_by_key = enrichment.set_index("tracking_key")
+    for column in FULL_SCRAPE_ENRICHMENT_COLUMNS:
+        if column not in enrichment.columns:
+            continue
+        if column not in out.columns:
+            out[column] = pd.NA
+        source = out["tracking_key"].astype(str).map(enrichment_by_key[column])
+        source_has_value = source.map(has_value)
+        target_missing = ~out[column].map(has_value)
+        out.loc[source_has_value & target_missing, column] = source.loc[source_has_value & target_missing]
+    return out
+
+
 def load_visual_features(cascade_run: Path) -> pd.DataFrame:
     visual_dir = cascade_run / "visual_features"
     frames: list[pd.DataFrame] = []
@@ -271,7 +388,8 @@ def load_visual_features(cascade_run: Path) -> pd.DataFrame:
             frame = read_csv_if_useful(path)
             if frame is None:
                 continue
-            frame["visual_feature_source_file"] = str(path)
+            source_file = pd.Series(str(path), index=frame.index, name="visual_feature_source_file")
+            frame = pd.concat([frame, source_file], axis=1)
             frames.append(frame)
     if frames:
         visual = pd.concat(frames, ignore_index=True, sort=False)
@@ -281,7 +399,8 @@ def load_visual_features(cascade_run: Path) -> pd.DataFrame:
         visual = frame if frame is not None else pd.DataFrame()
     if visual.empty:
         return visual
-    visual["tracking_key"] = derive_key(visual)
+    tracking_key = derive_key(visual).rename("tracking_key")
+    visual = pd.concat([visual.drop(columns=["tracking_key"], errors="ignore"), tracking_key], axis=1)
     visual = sort_columns_for_latest(visual)
     drop_sort = [column for column in visual.columns if column.startswith("__sort_")]
     visual = visual.drop_duplicates("tracking_key", keep="last").drop(columns=drop_sort, errors="ignore")
@@ -295,7 +414,7 @@ def build_full_visual(labels: pd.DataFrame, windows: list[int], cascade_run: Pat
     keep = [column for column in label_columns(windows) if column in labels.columns]
     label_frame = labels[keep].copy()
     merged = visual.merge(label_frame, on="tracking_key", how="inner", suffixes=("", "_label"))
-    return merged
+    return add_text_enrichment_features(merge_full_enrichment(merged, cascade_run))
 
 
 def infer_search_from_path(path: Path, simple_scrape_dir: Path) -> str:
@@ -581,6 +700,7 @@ def main() -> None:
     tracked = pd.read_csv(tracked_path)
     windows = available_live_windows(tracked) if args.all_live_windows else sorted(set(args.windows))
     labels = prepare_live_labels(tracked, windows)
+    labels = add_text_enrichment_features(merge_full_enrichment(labels, cascade_run))
     basic5 = build_basic5(labels, windows)
     full_visual = build_full_visual(labels, windows, cascade_run)
     historical_audit, historical_candidates = audit_historical(args.simple_scrape_dir, windows)

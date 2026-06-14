@@ -64,7 +64,7 @@ NEW_SEARCH_STAGE1_MODELS = {
     "telefoni": "hist_gradient_basic_numeric_v1",
     "hobby_collezionismo": "random_forest_basic_v1",
 }
-DEFAULT_BALANCE_WINDOWS = (2, 4, 6, 12, 24, 48, 72)
+DEFAULT_BALANCE_WINDOWS = (2, 4, 6, 12, 24, 48, 72, 168)
 STATE_FILE = cascade.STATE_FILE
 EVENTS_FILE = cascade.EVENTS_FILE
 LIVE_RUNS_DIR = EXPERIMENT_ROOT / "live_runs"
@@ -89,6 +89,38 @@ OBJECT_COLUMNS = (
     "collector_full_scrape_finished_at",
     "collector_visual_features_path",
 )
+FULL_SCRAPE_MERGE_COLUMNS = (
+    "Description",
+    "Condition",
+    "Upload_date",
+    "Interested_count",
+    "View_count",
+    "SellerName",
+    "SellerId",
+    "Location",
+    "ReviewsCount",
+    "Stars",
+    "PictureCount",
+    "VisiblePictureCount",
+    "HiddenPictureCount",
+    "PrimaryImageUrl",
+    "FullImageUrls",
+    "FullScrapedAt",
+    "FullScrapeReason",
+)
+STATE_OWNED_COLUMNS = {
+    "tracking_key",
+    "first_stage1_pass_at",
+    "last_seen_at",
+    "last_rechecked_at",
+    "last_recheck_status",
+    "sold_at",
+    "FullScrapeStatus",
+    "QualityMethodStatus",
+    "collector_full_scrape_attempted_at",
+    "collector_full_scrape_finished_at",
+    "collector_visual_features_path",
+}
 
 
 class TimestampedStream:
@@ -185,6 +217,78 @@ def ensure_collector_state(frame: pd.DataFrame) -> pd.DataFrame:
     if "tracking_key" in out.columns:
         out["tracking_key"] = out["tracking_key"].fillna("").astype(str)
     return out
+
+
+def has_value(value: object) -> bool:
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (list, tuple, dict, set)):
+        return bool(value)
+    if value is None:
+        return False
+    return str(value).strip() not in {"", "nan", "None", "<NA>"}
+
+
+def sort_full_scrape_latest(frame: pd.DataFrame) -> pd.DataFrame:
+    sort_cols = [column for column in ("FullScrapedAt", "snapshot_at", "SearchDate") if column in frame.columns]
+    if not sort_cols:
+        return frame
+    out = frame.copy()
+    for column in sort_cols:
+        out[f"__sort_{column}"] = pd.to_datetime(out[column], errors="coerce", utc=True)
+    out = out.sort_values([f"__sort_{column}" for column in sort_cols])
+    return out.drop(columns=[column for column in out.columns if column.startswith("__sort_")], errors="ignore")
+
+
+def is_outcome_window_column(column: str) -> bool:
+    for prefix in ("sold_within_", "evaluated_at_", "status_at_"):
+        if column.startswith(prefix) and column.endswith("h"):
+            return column[len(prefix):-1].isdigit()
+    return False
+
+
+def is_state_owned_column(column: str) -> bool:
+    return column in STATE_OWNED_COLUMNS or is_outcome_window_column(column)
+
+
+def full_scrape_merge_columns(enriched: pd.DataFrame) -> list[str]:
+    preferred = [column for column in FULL_SCRAPE_MERGE_COLUMNS if column in enriched.columns]
+    remaining = [column for column in enriched.columns if column not in preferred]
+    return [
+        column
+        for column in preferred + remaining
+        if column != "tracking_key" and not is_state_owned_column(column)
+    ]
+
+
+def merge_full_scrape_payload(tracked: pd.DataFrame, successes: pd.DataFrame) -> pd.DataFrame:
+    if tracked.empty or successes.empty:
+        return tracked
+    out = ensure_collector_state(add_tracking_key(tracked))
+    enriched = sort_full_scrape_latest(add_tracking_key(successes))
+    enriched = enriched.drop_duplicates("tracking_key", keep="last")
+    merge_columns = full_scrape_merge_columns(enriched)
+    if not merge_columns:
+        return out
+    for column in merge_columns:
+        if column not in out.columns:
+            out[column] = pd.NA
+    indexed = out.set_index("tracking_key", drop=False)
+    for _, row in enriched.iterrows():
+        key = str(row.get("tracking_key", ""))
+        if key not in indexed.index:
+            continue
+        for column in merge_columns:
+            source = row.get(column)
+            if not has_value(source):
+                continue
+            current = indexed.at[key, column]
+            if not has_value(current):
+                indexed.at[key, column] = source
+    return ensure_collector_state(indexed.reset_index(drop=True))
 
 
 def bool_series(series: pd.Series) -> pd.Series:
@@ -524,6 +628,7 @@ def update_full_scrape_state(
     visual_path: Path | None,
     finished_at: str,
 ) -> pd.DataFrame:
+    tracked = merge_full_scrape_payload(tracked, successes)
     tracked = ensure_collector_state(add_tracking_key(tracked))
     selected = add_tracking_key(selected_for_search)
     success_keys = set(add_tracking_key(successes)["tracking_key"].astype(str)) if not successes.empty else set()
@@ -883,14 +988,14 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--image-timeout", type=float, default=8.0)
     collect.add_argument("--quality-methods", default="simple,aesthetic,dino")
     collect.add_argument("--quality-device", default="auto")
-    collect.add_argument("--max-recheck-age-hours", type=float, default=72.0)
+    collect.add_argument("--max-recheck-age-hours", type=float, default=168.0)
     collect.add_argument("--collect-every-hours", type=float, default=2.0)
 
     recheck = sub.add_parser("recheck-due")
     add_common(recheck)
     recheck.add_argument("--dry-run", action="store_true")
     recheck.add_argument("--max-workers", type=int, default=3)
-    recheck.add_argument("--max-recheck-age-hours", type=float, default=72.0)
+    recheck.add_argument("--max-recheck-age-hours", type=float, default=168.0)
 
     report = sub.add_parser("report")
     add_common(report)
@@ -908,7 +1013,7 @@ def parse_args() -> argparse.Namespace:
     loop.add_argument("--quality-methods", default="simple,aesthetic,dino")
     loop.add_argument("--quality-device", default="auto")
     loop.add_argument("--max-workers", type=int, default=3)
-    loop.add_argument("--max-recheck-age-hours", type=float, default=72.0)
+    loop.add_argument("--max-recheck-age-hours", type=float, default=168.0)
 
     daemon = sub.add_parser("start-daemon")
     add_common(daemon)
@@ -923,7 +1028,7 @@ def parse_args() -> argparse.Namespace:
     daemon.add_argument("--quality-methods", default="simple,aesthetic,dino")
     daemon.add_argument("--quality-device", default="auto")
     daemon.add_argument("--max-workers", type=int, default=3)
-    daemon.add_argument("--max-recheck-age-hours", type=float, default=72.0)
+    daemon.add_argument("--max-recheck-age-hours", type=float, default=168.0)
     daemon.add_argument("--log-file", type=Path, default=None)
     return parser.parse_args()
 

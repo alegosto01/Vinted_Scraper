@@ -26,6 +26,12 @@ from experiments.basic_5_giant_model.paths import (  # noqa: E402
     run_id,
     write_json,
 )
+from experiments.current.basic_5_giant_model.title_features import (  # noqa: E402
+    TITLE_BINARY_FEATURES,
+    TITLE_NUMERIC_FEATURES,
+    build_title_feature_frame,
+    raw_title_token_count,
+)
 
 
 RERANKER_ROOT = EXPERIMENT_ROOT / "full_scrape_reranker"
@@ -52,6 +58,8 @@ BASE_NUMERIC_FEATURES = (
     "description_token_count",
     "title_char_len_full",
     "title_token_count_full",
+    *TITLE_NUMERIC_FEATURES,
+    *TITLE_BINARY_FEATURES,
     "upload_age_minutes",
     "seller_has_reviews",
     "stars_missing",
@@ -66,7 +74,7 @@ BASE_CATEGORICAL_FEATURES = (
     "LocationCountry",
 )
 TEXT_FEATURES = (
-    "TitleText",
+    "TitleTextNormalized",
     "DescriptionText",
 )
 
@@ -127,7 +135,12 @@ def location_country(value: object) -> str:
 
 
 def text_token_count(series: pd.Series) -> pd.Series:
-    return series.fillna("").astype(str).str.findall(r"\w+").str.len()
+    return raw_title_token_count(series)
+
+
+def nonempty_text_mask(series: pd.Series) -> pd.Series:
+    text = series.fillna("").astype(str).str.strip()
+    return text.ne("") & ~text.str.lower().isin({"nan", "none", "unknown"})
 
 
 def model_score_columns(frame: pd.DataFrame) -> list[str]:
@@ -147,6 +160,8 @@ def add_full_scrape_features(frame: pd.DataFrame) -> pd.DataFrame:
 
     out["TitleText"] = out["Title"].fillna("").astype(str)
     out["DescriptionText"] = out["Description"].fillna("").astype(str)
+    title_features = build_title_feature_frame(out["TitleText"])
+    out = pd.concat([out, title_features], axis=1)
     out["description_char_len"] = out["DescriptionText"].str.len()
     out["description_token_count"] = text_token_count(out["DescriptionText"])
     out["title_char_len_full"] = out["TitleText"].str.len()
@@ -364,8 +379,38 @@ def load_scored_items(scoring_dir: Path | None) -> pd.DataFrame:
     return pd.read_csv(path, low_memory=False)
 
 
+def full_items_path(run_dir: Path) -> Path:
+    return run_dir / "full_items" / "items_enriched.csv"
+
+
+def manifest_live_run_dir(run_dir: Path) -> Path | None:
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    live_run_dir = manifest.get("live_run_dir")
+    if not live_run_dir:
+        return None
+    return Path(str(live_run_dir))
+
+
+def resolve_live_run_dir(live_run_dir: Path, *, scoring_dir: Path | None = None) -> Path:
+    if full_items_path(live_run_dir).exists():
+        return live_run_dir
+    for candidate in (scoring_dir, live_run_dir):
+        if candidate is None:
+            continue
+        resolved = manifest_live_run_dir(candidate)
+        if resolved is not None and full_items_path(resolved).exists():
+            return resolved
+    return live_run_dir
+
+
 def load_enriched_items(live_run_dir: Path) -> pd.DataFrame:
-    path = live_run_dir / "full_items" / "items_enriched.csv"
+    path = full_items_path(live_run_dir)
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path, low_memory=False)
@@ -393,18 +438,37 @@ def enrichment_columns(enriched: pd.DataFrame) -> list[str]:
     return [col for col in preferred if col in enriched.columns]
 
 
-def merge_full_scrape_enrichment(scored: pd.DataFrame, live_run_dir: Path) -> pd.DataFrame:
+def merge_full_scrape_enrichment(
+    scored: pd.DataFrame,
+    live_run_dir: Path,
+    *,
+    scoring_dir: Path | None = None,
+) -> pd.DataFrame:
     if "tracking_key" not in scored.columns:
         return scored.copy()
-    enriched = load_enriched_items(live_run_dir)
+    resolved_live_run_dir = resolve_live_run_dir(live_run_dir, scoring_dir=scoring_dir)
+    enriched = load_enriched_items(resolved_live_run_dir)
     if enriched.empty:
         return scored.copy()
     cols = enrichment_columns(enriched)
     if "tracking_key" not in cols:
         return scored.copy()
     enrich = enriched[cols].drop_duplicates(subset=["tracking_key"], keep="last")
-    add_cols = [col for col in enrich.columns if col == "tracking_key" or col not in scored.columns]
-    return scored.merge(enrich[add_cols], on="tracking_key", how="left")
+    merged = scored.merge(enrich, on="tracking_key", how="left", suffixes=("", "__full_scrape"))
+    for col in (c for c in enrich.columns if c != "tracking_key"):
+        enriched_col = f"{col}__full_scrape" if col in scored.columns else col
+        if enriched_col not in merged.columns:
+            continue
+        enriched_values = merged[enriched_col]
+        if col in merged.columns and enriched_col != col:
+            replacement_mask = enriched_values.notna()
+            if enriched_values.dtype == object:
+                replacement_mask &= nonempty_text_mask(enriched_values)
+            merged.loc[replacement_mask, col] = enriched_values.loc[replacement_mask]
+            merged = merged.drop(columns=[enriched_col])
+        elif enriched_col != col:
+            merged = merged.rename(columns={enriched_col: col})
+    return merged
 
 
 def build_training_frame(
@@ -415,15 +479,16 @@ def build_training_frame(
     horizon_hours: int,
 ) -> pd.DataFrame:
     scored = load_scored_items(scoring_dir)
-    merged = merge_full_scrape_enrichment(scored, live_run_dir)
+    merged = merge_full_scrape_enrichment(scored, live_run_dir, scoring_dir=scoring_dir)
     if "SearchName" not in merged.columns:
         raise ValueError("Scored items are missing SearchName")
     label_col = f"sold_within_{horizon_hours}h"
     if label_col not in merged.columns:
         raise ValueError(f"Scored items are missing {label_col}")
     merged = merged[merged["SearchName"].astype(str).isin(searches)].copy()
-    if "Description" in merged.columns:
-        merged = merged[merged["Description"].notna()].copy()
+    if "Description" not in merged.columns:
+        merged["Description"] = ""
+    merged = merged[nonempty_text_mask(merged["Description"])].copy()
     merged["target"] = pd.to_numeric(merged[label_col], errors="coerce")
     merged = merged[merged["target"].notna()].copy()
     merged["target"] = merged["target"].astype(int)
@@ -669,8 +734,10 @@ def train_rerankers(args: argparse.Namespace) -> dict[str, Any]:
 
     target_precisions = tuple(float(value) for value in (args.target_precision or DEFAULT_TARGET_PRECISIONS))
 
+    resolved_live_run_dir = resolve_live_run_dir(args.live_run_dir, scoring_dir=args.scoring_dir)
+
     frame = build_training_frame(
-        live_run_dir=args.live_run_dir,
+        live_run_dir=resolved_live_run_dir,
         scoring_dir=args.scoring_dir,
         searches=searches,
         horizon_hours=args.horizon_hours,
@@ -713,6 +780,7 @@ def train_rerankers(args: argparse.Namespace) -> dict[str, Any]:
         "run_name": run_name,
         "unified": unified,
         "created_from_live_run_dir": str(args.live_run_dir),
+        "resolved_live_run_dir": str(resolved_live_run_dir),
         "created_from_scoring_dir": str(args.scoring_dir or latest_live_scoring_dir()),
         "horizon_hours": int(args.horizon_hours),
         "searches": list(searches),
@@ -788,7 +856,7 @@ def apply_full_scrape_reranker(
 
         if "Description" in out.columns:
             description = out.loc[search_mask, "Description"]
-            full_scrape_ok = description.notna() & description.astype(str).str.strip().ne("")
+            full_scrape_ok = nonempty_text_mask(description)
         else:
             full_scrape_ok = pd.Series(False, index=out.loc[search_mask].index)
         model = load_reranker_model(metadata)

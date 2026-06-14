@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,9 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from experiments.basic_5_giant_model import run as giant
 from experiments.basic_5_giant_model import apply_to_live_collector
+from experiments.current.full_scrape_giant_model import full_scrape_features
+from experiments.old.full_scrape_reranker import full_scrape_reranker
+from experiments.current.basic_5_giant_model import title_features
 from experiments.basic_5_giant_model import report_per_search_thresholds
 from experiments.basic_5_giant_model import report_weighted_voting
 from experiments.deal_finder import model_sweep
@@ -182,6 +186,71 @@ class Basic5GiantModelTests(unittest.TestCase):
         self.assertEqual(candidates.iloc[0]["GiantPassedModels"], "left, right")
         self.assertEqual(candidates.iloc[0]["GiantPassedModelCount"], 2)
         self.assertIn("Giant model pass", candidates.iloc[0]["RecommendationReason"])
+
+    def test_title_feature_normalization_and_keyword_flags(self):
+        series = pd.Series(["  NÚOVO bundle set 120€  ", "Authentic Prada da riparare"])
+
+        out = title_features.build_title_feature_frame(series)
+
+        self.assertEqual(out.loc[0, "TitleTextNormalized"], "nuovo bundle set 120")
+        self.assertEqual(int(out.loc[0, "title_has_new_word_full"]), 1)
+        self.assertEqual(int(out.loc[0, "title_has_bundle_word_full"]), 1)
+        self.assertEqual(int(out.loc[0, "title_has_price_like_number_full"]), 1)
+        self.assertEqual(int(out.loc[0, "title_keyword_positive_count_full"]), 1)
+        self.assertEqual(int(out.loc[0, "title_keyword_caution_count_full"]), 2)
+        self.assertEqual(int(out.loc[1, "title_has_auth_word_full"]), 1)
+        self.assertEqual(int(out.loc[1, "title_has_defect_word_full"]), 1)
+
+    def test_full_scrape_features_include_normalized_title_columns(self):
+        frame = pd.DataFrame(
+            {
+                "Title": ["NÚOVO Prada bundle 120€"],
+                "Description": ["Condizioni ottime"],
+                "Brand": ["Prada"],
+                "Condition": ["new"],
+                "Location": ["Milano, Italia"],
+                "Price": [120],
+                "Likes": [4],
+            }
+        )
+
+        out = full_scrape_features.add_full_scrape_features(frame)
+
+        self.assertEqual(out.loc[0, "TitleTextNormalized"], "nuovo prada bundle 120")
+        self.assertEqual(int(out.loc[0, "title_token_count_full_norm"]), 4)
+        self.assertEqual(int(out.loc[0, "title_unique_token_count_full"]), 4)
+        self.assertEqual(int(out.loc[0, "title_has_bundle_word_full"]), 1)
+        self.assertIn("TitleTextNormalized", full_scrape_reranker.TEXT_FEATURES)
+        self.assertIn("title_keyword_positive_count_full", full_scrape_reranker.BASE_NUMERIC_FEATURES)
+
+    def test_full_scrape_enrichment_overlays_blank_description(self):
+        scored = pd.DataFrame(
+            {
+                "tracking_key": ["nike:1", "nike:2"],
+                "Description": ["", "already present"],
+                "Condition": ["", "good"],
+            }
+        )
+        enriched = pd.DataFrame(
+            {
+                "tracking_key": ["nike:1", "nike:2"],
+                "Description": ["real full scrape description", ""],
+                "Condition": ["new", ""],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            full_items = run_dir / "full_items"
+            full_items.mkdir()
+            enriched.to_csv(full_items / "items_enriched.csv", index=False)
+
+            merged = full_scrape_reranker.merge_full_scrape_enrichment(scored, run_dir)
+
+        self.assertEqual(merged.loc[0, "Description"], "real full scrape description")
+        self.assertEqual(merged.loc[0, "Condition"], "new")
+        self.assertEqual(merged.loc[1, "Description"], "already present")
+        self.assertEqual(merged.loc[1, "Condition"], "good")
 
 
 if __name__ == "__main__":

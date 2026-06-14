@@ -6,6 +6,7 @@ import ast
 import json
 import math
 import pickle
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ import numpy as np
 import pandas as pd
 
 TOKEN_RE = r"[A-Za-z0-9]{2,}"
+TITLE_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+URL_RE = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[3]
 if str(SCRIPTS_DIR) not in sys.path:
@@ -61,6 +64,13 @@ ENGINEERED_NUMERIC = [
     "log_likes",
     "title_char_len",
     "title_token_count",
+    "title_norm_char_len",
+    "title_norm_token_count",
+    "title_unique_token_count",
+    "title_duplicate_token_ratio",
+    "title_avg_token_len",
+    "title_punct_count",
+    "title_upper_ratio",
     "title_has_digit",
     "title_has_new_word",
     "title_has_auth_word",
@@ -227,6 +237,41 @@ def coerce_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(text, errors="coerce")
 
 
+def normalize_title_text(series: pd.Series) -> pd.Series:
+    text = series.fillna("").astype(str)
+    text = text.str.replace(URL_RE, " ", regex=True)
+    text = text.str.lower()
+    text = text.str.replace(r"[^a-z0-9]+", " ", regex=True)
+    return text.str.replace(r"\s+", " ", regex=True).str.strip()
+
+
+def token_lists(series: pd.Series) -> pd.Series:
+    return series.fillna("").astype(str).str.findall(TITLE_TOKEN_RE)
+
+
+def unique_token_count(tokens: list[str]) -> int:
+    return len(set(tokens))
+
+
+def duplicate_token_ratio(tokens: list[str]) -> float:
+    if not tokens:
+        return 0.0
+    return 1.0 - (len(set(tokens)) / len(tokens))
+
+
+def average_token_len(tokens: list[str]) -> float:
+    if not tokens:
+        return 0.0
+    return float(sum(len(token) for token in tokens) / len(tokens))
+
+
+def uppercase_ratio(series: pd.Series) -> pd.Series:
+    text = series.fillna("").astype(str)
+    uppercase = text.str.count(r"[A-Z]")
+    letters = text.str.count(r"[A-Za-z]")
+    return (uppercase / letters.replace(0, np.nan)).fillna(0.0)
+
+
 def add_engineered_snapshot_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["price_num"] = coerce_numeric(out["Price"]) if "Price" in out.columns else np.nan
@@ -238,8 +283,17 @@ def add_engineered_snapshot_features(df: pd.DataFrame) -> pd.DataFrame:
     brand = out["Brand"].fillna("").astype(str) if "Brand" in out.columns else pd.Series([""] * len(out), index=out.index)
     size = out["Size"].fillna("").astype(str) if "Size" in out.columns else pd.Series([""] * len(out), index=out.index)
     lowered = title.str.lower()
+    normalized_title = normalize_title_text(title)
+    normalized_tokens = token_lists(normalized_title)
     out["title_char_len"] = title.str.len()
-    out["title_token_count"] = title.str.findall(r"[A-Za-z0-9]+").map(len)
+    out["title_token_count"] = token_lists(title).map(len)
+    out["title_norm_char_len"] = normalized_title.str.len()
+    out["title_norm_token_count"] = normalized_tokens.map(len)
+    out["title_unique_token_count"] = normalized_tokens.map(unique_token_count)
+    out["title_duplicate_token_ratio"] = normalized_tokens.map(duplicate_token_ratio)
+    out["title_avg_token_len"] = normalized_tokens.map(average_token_len)
+    out["title_punct_count"] = title.str.count(r"[^\w\s]")
+    out["title_upper_ratio"] = uppercase_ratio(title)
     out["title_has_digit"] = title.str.contains(r"\d", regex=True, na=False).astype(int)
     out["title_has_new_word"] = lowered.str.contains(r"\b(?:new|nuov[aoei]?|nueva|neuf|neu|nwt|cartellino)\b", regex=True, na=False).astype(int)
     out["title_has_auth_word"] = lowered.str.contains(r"\b(?:original|authentic|autentico|vero|genuine)\b", regex=True, na=False).astype(int)

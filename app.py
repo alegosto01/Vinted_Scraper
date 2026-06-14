@@ -778,7 +778,7 @@ with tab_tts:
         s1.metric("Last status", status.get("status", "—"))
         s2.metric("Due rows", status.get("due_rows", "—"))
         s3.metric("Checked rows", status.get("checked_rows", "—"))
-        s4.metric("Max recheck age", status.get("max_recheck_age_hours", daemon.get("max_recheck_age_hours", "72")))
+        s4.metric("Max recheck age", status.get("max_recheck_age_hours", daemon.get("max_recheck_age_hours", "168")))
 
         if pd.notna(meta["latest_selected_at"]):
             st.caption(f"Latest selected item: `{meta['latest_selected_at']}`")
@@ -804,7 +804,7 @@ with tab_tts:
             st.info("No bin-balance report yet. It appears after the first report pass.")
         else:
             available_windows = sorted(pd.to_numeric(balance.get("hours"), errors="coerce").dropna().astype(int).unique())
-            default_windows = [h for h in [2, 4, 6, 12, 24, 48, 72] if h in available_windows] or available_windows[:5]
+            default_windows = [h for h in [2, 4, 6, 12, 24, 48, 72, 168] if h in available_windows] or available_windows[:5]
             selected_windows = st.multiselect(
                 "Windows",
                 options=available_windows,

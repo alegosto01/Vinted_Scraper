@@ -19,6 +19,7 @@ from experiments.deal_finder import model_sweep as base_sweep
 from experiments.deal_finder.modeling import TARGET_COL, score_with_model
 from experiments.full_scrape_model import compare_feature_modalities as feature_compare
 from experiments.time_to_sell.build_speed_datasets import boolish
+from experiments.current.time_to_sell.text_features import add_title_features
 from experiments.time_to_sell.paths import (
     EXPERIMENT_ROOT,
     assert_experiment_path,
@@ -47,6 +48,104 @@ MODE_TO_COMPARE_MODE = {
     "basic5": "basic_5",
     "full_visual": "full_scrape_plus_visual",
 }
+SPEED_TITLE_NUMERIC_FEATURES = (
+    "title_char_len",
+    "title_token_count",
+    "title_norm_char_len",
+    "title_norm_token_count",
+    "title_unique_token_count",
+    "title_duplicate_token_ratio",
+    "title_avg_token_len",
+    "title_punct_count",
+    "title_upper_ratio",
+    "title_has_digit",
+    "title_has_new_word",
+    "title_has_auth_word",
+    "title_char_len_full",
+    "title_token_count_full",
+    "title_char_len_full_norm",
+    "title_token_count_full_norm",
+    "title_unique_token_count_full",
+    "title_digit_token_count_full",
+    "title_keyword_positive_count_full",
+    "title_keyword_caution_count_full",
+    "title_has_digit_full",
+    "title_has_new_word_full",
+    "title_has_auth_word_full",
+    "title_has_limited_word_full",
+    "title_has_bundle_word_full",
+    "title_has_defect_word_full",
+    "title_has_price_like_number_full",
+    "title_char_len_tts",
+    "title_token_count_tts",
+    "title_unique_token_count_tts",
+    "title_digit_token_count_tts",
+    "title_keyword_positive_count_tts",
+    "title_keyword_caution_count_tts",
+    "title_has_digit_tts",
+    "title_has_new_word_tts",
+    "title_has_auth_word_tts",
+    "title_has_limited_word_tts",
+    "title_has_bundle_word_tts",
+    "title_has_defect_word_tts",
+    "title_has_price_like_number_tts",
+)
+SPEED_DESCRIPTION_NUMERIC_FEATURES = (
+    "description_char_len",
+    "description_token_count",
+    "desc_len",
+    "desc_tokens",
+    "title_desc_overlap_jaccard",
+    "desc_has_spedisco",
+    "desc_has_affare",
+)
+SPEED_NUMERIC_PREFIXES = ("title_svd_", "desc_svd_")
+SPEED_TEXT_FEATURES = (
+    "TitleTextNormalized",
+    "TitleText",
+    "DescriptionText",
+    "DescriptionTextNormalized",
+)
+SPEED_BASIC_EXTRA_TEXT_FEATURES = ("Description",)
+
+
+def _extend_unique(values: list[str], extras: list[str]) -> list[str]:
+    seen = set(values)
+    out = list(values)
+    for value in extras:
+        if value in seen:
+            continue
+        out.append(value)
+        seen.add(value)
+    return out
+
+
+def _numeric_has_signal(frame: pd.DataFrame, column: str) -> bool:
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return not values.empty and values.nunique(dropna=True) > 1
+
+
+def available_speed_numeric_features(frame: pd.DataFrame) -> list[str]:
+    candidates = [
+        *SPEED_TITLE_NUMERIC_FEATURES,
+        *SPEED_DESCRIPTION_NUMERIC_FEATURES,
+        *[
+            column
+            for column in frame.columns
+            if any(column.startswith(prefix) for prefix in SPEED_NUMERIC_PREFIXES)
+        ],
+    ]
+    candidates = list(dict.fromkeys(candidates))
+    available = [column for column in candidates if column in frame.columns and _numeric_has_signal(frame, column)]
+    return base_sweep.safe_selected_features(available, frame)
+
+
+def available_speed_text_features(frame: pd.DataFrame, *, mode: str) -> list[str]:
+    candidates = list(SPEED_TEXT_FEATURES)
+    if mode == "basic5":
+        candidates.extend(SPEED_BASIC_EXTRA_TEXT_FEATURES)
+    text = feature_compare.available_text_features(frame, list(dict.fromkeys(candidates)))
+    return base_sweep.safe_selected_features(text, frame)
 
 
 def latest_speed_dataset_dir() -> Path:
@@ -239,6 +338,10 @@ def feature_columns_for_mode(
         embedding_cols=embedding_cols,
         include_upload_date=include_upload_date,
     )
+    if spec.kind != "rules":
+        numeric = _extend_unique(numeric, available_speed_numeric_features(train))
+        if mode_spec.use_text:
+            text = _extend_unique(text, available_speed_text_features(train, mode=mode))
     return numeric, text
 
 
@@ -253,7 +356,7 @@ def train_one(
     include_upload_date: bool,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     started = time.perf_counter()
-    work = feature_compare.add_full_engineered_features(frame)
+    work = feature_compare.add_full_engineered_features(add_title_features(frame))
     embedding_cols = sorted(column for column in work.columns if column.startswith("DinoEmbedding_"))
     splits = base_sweep.stratified_random_split(work, seed=seed)
     split_sizes = {
