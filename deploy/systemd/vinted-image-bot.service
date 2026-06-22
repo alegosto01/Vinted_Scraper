@@ -1,0 +1,15 @@
+[Unit]
+Description=Vinted Telegram image bot (polling)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Vinted_New_Version
+ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python scripts/telegram_implementation/image_bot.py
+Restart=always
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

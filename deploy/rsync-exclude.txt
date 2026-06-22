@@ -1,0 +1,11 @@
+# Excluded from laptop->VPS sync.
+# basic_5_giant_model scoring needs only CSV state, not heavy media.
+visual_features/
+raw_snapshots/
+image_cache/
+*.png
+*.jpg
+*.jpeg
+*.webp
+__pycache__/
+*.pyc
