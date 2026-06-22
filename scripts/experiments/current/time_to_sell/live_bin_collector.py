@@ -277,6 +277,12 @@ def merge_full_scrape_payload(tracked: pd.DataFrame, successes: pd.DataFrame) ->
         if column not in out.columns:
             out[column] = pd.NA
     indexed = out.set_index("tracking_key", drop=False)
+    # Merge columns may pre-exist as float64; writing a string scalar via .at
+    # raises in newer pandas instead of upcasting. Cast to object so mixed-type
+    # payload values merge cleanly (re-typed downstream by ensure_collector_state).
+    for column in merge_columns:
+        if indexed[column].dtype != object:
+            indexed[column] = indexed[column].astype(object)
     for _, row in enriched.iterrows():
         key = str(row.get("tracking_key", ""))
         if key not in indexed.index:
