@@ -53,12 +53,15 @@ DEFAULT_SEARCHES = (
     "prada",
     "griffati_uomo_all",
     "griffati_donna_all",
+    "telefoni",
+    "hobby_collezionismo",
+    "donna_accessori_gioielli",
 )
 SEARCH_ALIASES = {
     "griffati_uomo": "griffati_uomo_all",
     "griffati_donna": "griffati_donna_all",
 }
-NEW_SEARCH_STAGE1_RUN = "basic_5_giant_new_searches_20260609_004047"
+NEW_SEARCH_STAGE1_RUN = "basic_5_giant_20260614_221642"
 NEW_SEARCH_STAGE1_MODELS = {
     "donna_accessori_gioielli": "hist_gradient_basic_numeric_v1",
     "telefoni": "hist_gradient_basic_numeric_v1",
@@ -328,12 +331,16 @@ def basic_5_giant_model_basename(run_name: str, approach: str) -> str:
 
 
 def load_basic_5_giant_metadata(run_name: str, approach: str) -> dict[str, Any]:
-    models_dir = ROOT / "data" / "experiments" / "basic_5_giant_model" / "models"
+    models_dir = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "models"
     metadata_path = models_dir / f"{basic_5_giant_model_basename(run_name, approach)}_metadata.json"
     if not metadata_path.exists():
         raise FileNotFoundError(f"Missing Basic-5 giant metadata: {metadata_path}")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    artifact = Path(str(metadata.get("artifact_path", "")))
+    # Prefer the artifact co-located with its metadata (canonical current location);
+    # fall back to the absolute path recorded in the json for older relocated runs.
+    artifact = models_dir / f"{basic_5_giant_model_basename(run_name, approach)}.pkl"
+    if not artifact.exists():
+        artifact = Path(str(metadata.get("artifact_path", "")))
     if not artifact.exists():
         raise FileNotFoundError(f"Missing Basic-5 giant artifact: {artifact}")
     metadata["metadata_path"] = str(metadata_path)
@@ -343,7 +350,7 @@ def load_basic_5_giant_metadata(run_name: str, approach: str) -> dict[str, Any]:
 
 
 def basic_5_giant_threshold(run_name: str, approach: str, search_name: str, metadata: dict[str, Any]) -> float:
-    threshold_path = ROOT / "data" / "experiments" / "basic_5_giant_model" / "offline_runs" / run_name / "per_search_threshold_metrics.csv"
+    threshold_path = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "offline_runs" / run_name / "per_search_threshold_metrics.csv"
     if threshold_path.exists():
         table = pd.read_csv(threshold_path, low_memory=False)
         scoped = table[

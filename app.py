@@ -367,6 +367,330 @@ def show_precision_table(df: pd.DataFrame) -> None:
     )
 
 
+def _latest_run_with(base, pattern, required_file):
+    """Newest run dir under `base` matching `pattern` that contains `required_file`."""
+    if not base.exists():
+        return None
+    cands = [p for p in base.glob(pattern) if p.is_dir() and (p / required_file).exists()]
+    if not cands:
+        return None
+    # newest by the required file's mtime — robust to non-date-sortable run names
+    # (e.g. "..._new_searches_..." sorts after date-stamped runs lexicographically)
+    return max(cands, key=lambda p: (p / required_file).stat().st_mtime)
+
+
+def render_giant_live(live_runs_dir, key_prefix):
+    """Live matured precision/coverage for a live_scored_* run dir (basic5 + visual)."""
+    ALL = "__all__"
+    run = _latest_run_with(live_runs_dir, "live_scoring_*", "manifest.json")
+    if run is None:
+        st.info(f"No live scoring runs found under `{live_runs_dir}`.")
+        return
+    manifest = read_json_safe(run / "manifest.json") or {}
+    summary_path = run / "live_scored_summary.csv"
+    performance_path = run / "live_scored_window_performance.csv"
+    scored_path = run / "live_scored_items.csv"
+
+    st.caption(f"Run: `{run.name}`")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Source", str(manifest.get("offline_run", manifest.get("model", "—")))[:22])
+    c2.metric("Models", len(manifest.get("approaches", [])) or ("1" if manifest.get("model") else "—"))
+    c3.metric("Scored rows", count_csv_rows(scored_path))
+    c4.metric("Scored", age_str(file_age(scored_path)))
+
+    summary_df = pd.read_csv(summary_path, low_memory=False) if summary_path.exists() else pd.DataFrame()
+    performance_df = pd.read_csv(performance_path, low_memory=False) if performance_path.exists() else pd.DataFrame()
+    if summary_df.empty and performance_df.empty:
+        st.warning("Run has no scored summary/performance yet.")
+        return
+
+    windows = sorted(pd.to_numeric(performance_df.get("hours", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).unique())
+    preferred = [h for h in [72, 48, 24, 12, 6, 4, 2, 1] if h in windows]
+    window = st.selectbox("Outcome window (h)", options=preferred or windows or [72], index=0, key=f"{key_prefix}_window")
+
+    if not performance_df.empty:
+        if "passed" in summary_df.columns and "approach" in summary_df.columns:
+            passed_tot = summary_df.groupby("approach", as_index=False)["passed"].sum().rename(columns={"passed": "passed_total"})
+        else:
+            passed_tot = pd.DataFrame(columns=["approach", "passed_total"])
+        overall = performance_df[performance_df["search_name"].eq(ALL) & performance_df["hours"].eq(window)].merge(passed_tot, on="approach", how="left")
+        st.subheader(f"Model comparison at {window}h (matured)")
+        st.dataframe(
+            overall[[c for c in ["approach", "passed_total", "evaluated", "sold", "precision", "coverage"] if c in overall.columns]]
+            .sort_values([c for c in ["precision", "sold", "evaluated"] if c in overall.columns], ascending=False, na_position="last"),
+            width="stretch", hide_index=True,
+            column_config={"precision": st.column_config.NumberColumn(format="%.3f"), "coverage": st.column_config.NumberColumn(format="%.3f")},
+        )
+
+    if not performance_df.empty:
+        bps = performance_df[~performance_df["search_name"].eq(ALL) & performance_df["hours"].eq(window)].copy()
+        bps = bps[pd.to_numeric(bps.get("evaluated"), errors="coerce").fillna(0) > 0]
+        if not bps.empty:
+            bps = bps.sort_values(["precision", "sold", "coverage", "evaluated"], ascending=False, na_position="last")
+            best = bps.drop_duplicates("search_name", keep="first")
+            if "threshold" in summary_df.columns and "approach" in summary_df.columns:
+                best = best.merge(summary_df[["approach", "search_name", "threshold"]].drop_duplicates(), on=["approach", "search_name"], how="left")
+            st.subheader(f"Best model per search at {window}h")
+            bcols = [c for c in ["search_name", "approach", "threshold", "evaluated", "sold", "precision", "coverage"] if c in best.columns]
+            st.dataframe(
+                best[bcols].sort_values("search_name"),
+                width="stretch", hide_index=True,
+                column_config={
+                    "threshold": st.column_config.NumberColumn(format="%.4f"),
+                    "precision": st.column_config.NumberColumn(format="%.3f"),
+                    "coverage": st.column_config.NumberColumn(format="%.3f"),
+                },
+            )
+
+    approaches = manifest.get("approaches") or sorted(summary_df.get("approach", pd.Series(dtype=str)).dropna().astype(str).unique())
+    if not approaches:
+        return
+    approach = st.selectbox("Model", options=list(approaches), index=0, key=f"{key_prefix}_approach")
+    st.subheader(f"{approach} — per-search matured precision/coverage")
+    model_summary = summary_df[summary_df["approach"].eq(approach)].copy() if "approach" in summary_df.columns else summary_df.copy()
+    if not performance_df.empty and not model_summary.empty:
+        mp = performance_df[performance_df["approach"].eq(approach) & ~performance_df["search_name"].eq(ALL) & performance_df["hours"].eq(window)]
+        model_summary = model_summary.merge(mp[["search_name", "evaluated", "sold", "precision", "coverage"]], on="search_name", how="left")
+    cols = [c for c in ["search_name", "threshold", "in_training_scope", "total_tracked", "total_scored", "passed", "pass_rate", "evaluated", "sold", "precision", "coverage", "mean_score", "p95_score", "max_score"] if c in model_summary.columns]
+    sort_cols = [c for c in ["precision", "sold", "passed"] if c in model_summary.columns] or cols[:1]
+    st.dataframe(
+        model_summary[cols].sort_values(sort_cols, ascending=False, na_position="last"),
+        width="stretch", hide_index=True,
+        column_config={
+            "threshold": st.column_config.NumberColumn(format="%.4f"),
+            "pass_rate": st.column_config.NumberColumn(format="%.3f"),
+            "precision": st.column_config.NumberColumn(format="%.3f"),
+            "coverage": st.column_config.NumberColumn(format="%.3f"),
+            "mean_score": st.column_config.NumberColumn(format="%.4f"),
+            "p95_score": st.column_config.NumberColumn(format="%.4f"),
+            "max_score": st.column_config.NumberColumn(format="%.4f"),
+        },
+    )
+
+
+def render_fullscrape_giant_live(live_runs_dir, key_prefix):
+    """Live per-search precision/coverage for full_scrape_giant_model (live_objective_per_search.csv)."""
+    run = _latest_run_with(live_runs_dir, "live_objective_*", "live_objective_per_search.csv")
+    if run is None:
+        st.info(f"No full-scrape giant live objective runs found under `{live_runs_dir}`.")
+        return
+    per_search_path = run / "live_objective_per_search.csv"
+    metrics_path = run / "live_objective_metrics.csv"
+
+    st.caption(f"Run: `{run.name}`")
+    c1, c2 = st.columns(2)
+    c1.metric("Per-search rows", count_csv_rows(per_search_path))
+    c2.metric("Updated", age_str(file_age(per_search_path)))
+
+    per_search = pd.read_csv(per_search_path, low_memory=False)
+    if per_search.empty:
+        st.warning("No per-search rows yet.")
+        return
+    bps = per_search.copy()
+    bps = bps[pd.to_numeric(bps.get("selected_count"), errors="coerce").fillna(0) > 0]
+    if not bps.empty and "search_name" in bps.columns:
+        bps = bps.sort_values(["precision", "selected_count", "roc_auc"], ascending=False, na_position="last")
+        best = bps.drop_duplicates("search_name", keep="first")
+        st.subheader("Best model per search (across mode × approach)")
+        bcols = [c for c in ["search_name", "mode", "approach", "threshold", "selected_count", "precision", "recall", "coverage", "roc_auc"] if c in best.columns]
+        st.dataframe(
+            best[bcols].sort_values("search_name"),
+            width="stretch", hide_index=True,
+            column_config={
+                "threshold": st.column_config.NumberColumn(format="%.4f"),
+                "precision": st.column_config.NumberColumn(format="%.3f"),
+                "recall": st.column_config.NumberColumn(format="%.3f"),
+                "coverage": st.column_config.NumberColumn(format="%.3f"),
+                "roc_auc": st.column_config.NumberColumn(format="%.3f"),
+            },
+        )
+
+    modes = sorted(per_search["mode"].dropna().astype(str).unique()) if "mode" in per_search.columns else []
+    approaches = sorted(per_search["approach"].dropna().astype(str).unique()) if "approach" in per_search.columns else []
+    fc1, fc2 = st.columns(2)
+    mode = fc1.selectbox("Feature mode", options=modes or ["—"], index=0, key=f"{key_prefix}_mode")
+    approach = fc2.selectbox("Model", options=approaches or ["—"], index=0, key=f"{key_prefix}_approach")
+
+    scoped = per_search
+    if "mode" in per_search.columns:
+        scoped = scoped[scoped["mode"].astype(str).eq(mode)]
+    if "approach" in per_search.columns:
+        scoped = scoped[scoped["approach"].astype(str).eq(approach)]
+    st.subheader("Per-search live precision/coverage")
+    cols = [c for c in ["search_name", "rows", "base_rate", "threshold", "selected_count", "coverage", "precision", "recall", "lift", "precision_at_25", "roc_auc", "pr_auc"] if c in scoped.columns]
+    sort_cols = [c for c in ["precision", "selected_count"] if c in scoped.columns] or cols[:1]
+    st.dataframe(
+        scoped[cols].sort_values(sort_cols, ascending=False, na_position="last"),
+        width="stretch", hide_index=True,
+        column_config={
+            "base_rate": st.column_config.NumberColumn(format="%.3f"),
+            "threshold": st.column_config.NumberColumn(format="%.4f"),
+            "coverage": st.column_config.NumberColumn(format="%.3f"),
+            "precision": st.column_config.NumberColumn(format="%.3f"),
+            "recall": st.column_config.NumberColumn(format="%.3f"),
+            "lift": st.column_config.NumberColumn(format="%.2f"),
+            "precision_at_25": st.column_config.NumberColumn(format="%.3f"),
+            "roc_auc": st.column_config.NumberColumn(format="%.3f"),
+            "pr_auc": st.column_config.NumberColumn(format="%.3f"),
+        },
+    )
+
+    overall = pd.read_csv(metrics_path, low_memory=False) if metrics_path.exists() else pd.DataFrame()
+    if not overall.empty:
+        st.subheader("Overall (by mode / approach)")
+        ocols = [c for c in ["mode", "approach", "threshold", "selected_count", "coverage", "precision", "recall", "precision_at_25", "roc_auc", "pr_auc"] if c in overall.columns]
+        st.dataframe(overall[ocols], width="stretch", hide_index=True)
+
+
+def _choose_live_threshold(scores, labels, min_precision, min_count):
+    """Lowest score threshold (max coverage) with precision>=target and selected>=min_count,
+    tuned on the given (in-sample) matured items. Fallback: threshold maximizing precision.
+    Returns (threshold, precision, selected_count)."""
+    import numpy as np
+    scores = np.asarray(scores, dtype=float)
+    labels = np.asarray(labels, dtype=float)
+    if scores.size == 0:
+        return (float("nan"), float("nan"), 0)
+    order = np.argsort(-scores)
+    s = scores[order]
+    y = labels[order]
+    n = np.arange(1, y.size + 1)
+    prec = np.cumsum(y) / n
+    ok = (n >= int(min_count)) & (prec >= float(min_precision))
+    if ok.any():
+        idx = int(np.max(np.where(ok)[0]))  # deepest qualifying depth = max coverage / lowest threshold
+        return (float(s[idx]), float(prec[idx]), int(n[idx]))
+    k = int(np.argmax(prec))
+    return (float(s[k]), float(prec[k]), int(n[k]))
+
+
+def render_threshold_compare_live(live_runs_dir, key_prefix):
+    """Live data: for the deployed single-threshold model (main_image_scores), compare its
+    GLOBAL threshold vs per-search thresholds tuned on live matured outcomes. In-sample."""
+    run = _latest_run_with(live_runs_dir, "live_scoring_*", "live_scored_items.csv")
+    if run is None:
+        st.info(f"No live scoring run with scored items under `{live_runs_dir}`.")
+        return
+    d = pd.read_csv(run / "live_scored_items.csv", low_memory=False)
+    score_cols = [c for c in d.columns if c.startswith("score__")]
+    if d.empty or not score_cols or "SearchName" not in d.columns:
+        st.warning("Live scored-items file missing score column or rows.")
+        return
+    sc = score_cols[0]
+    key = sc[len("score__"):]
+    thr_col = f"threshold__{key}"
+    gthr_series = pd.to_numeric(d.get(thr_col), errors="coerce").dropna() if thr_col in d.columns else pd.Series(dtype=float)
+    global_thr = float(gthr_series.iloc[0]) if not gthr_series.empty else 0.58
+    st.caption(f"Run: `{run.name}` — model `{key}`, deployed global threshold `{global_thr:.4f}`")
+
+    windows = sorted({int(m.group(1)) for c in d.columns for m in [re.fullmatch(r"sold_within_(\d+)h", c)] if m and f"evaluated_at_{m.group(1)}h" in d.columns})
+    if not windows:
+        st.warning("No matured outcome windows in live scored items.")
+        return
+    cc1, cc2, cc3 = st.columns(3)
+    default_w = 48 if 48 in windows else windows[len(windows) // 2]
+    window = cc1.selectbox("Maturation window (h)", windows, index=windows.index(default_w), key=f"{key_prefix}_w")
+    min_prec = cc2.slider("Per-search precision target", 0.50, 0.95, 0.70, 0.05, key=f"{key_prefix}_mp")
+    min_count = cc3.slider("Min selected count", 5, 100, 20, 5, key=f"{key_prefix}_mc")
+
+    sold_col = f"sold_within_{window}h"
+    eval_col = f"evaluated_at_{window}h"
+    mat = d[d[eval_col].notna()].copy()
+    ynum = pd.to_numeric(mat[sold_col], errors="coerce")
+    if ynum.notna().any():
+        mat["_y"] = (ynum.fillna(0) > 0).astype(float)
+    else:
+        mat["_y"] = mat[sold_col].astype(str).str.strip().str.lower().isin(["true", "1", "sold", "yes"]).astype(float)
+    mat["_s"] = pd.to_numeric(mat[sc], errors="coerce")
+    mat = mat[mat["_s"].notna()]
+    if mat.empty:
+        st.warning(f"No matured items at {window}h.")
+        return
+
+    rows = []
+    for search, g in mat.groupby("SearchName"):
+        y = g["_y"].to_numpy()
+        s = g["_s"].to_numpy()
+        N = int(len(g))
+        gsel = s >= global_thr
+        gN = int(gsel.sum())
+        gp = float(y[gsel].mean()) if gN else float("nan")
+        pthr, pp, pN = _choose_live_threshold(s, y, min_prec, min_count)
+        rows.append({
+            "search": str(search),
+            "matured": N,
+            "base_rate": float(y.mean()) if N else float("nan"),
+            "global_thr": global_thr,
+            "global_n": gN,
+            "global_prec": gp,
+            "ps_thr": pthr,
+            "ps_n": pN,
+            "ps_prec": pp,
+            "Δprec": (pp - gp) if (pp == pp and gp == gp) else float("nan"),
+            "Δn": pN - gN,
+        })
+    out = pd.DataFrame(rows).sort_values("search")
+    st.subheader(f"main_image_scores — global vs per-search threshold @ {window}h")
+    st.dataframe(
+        out, width="stretch", hide_index=True,
+        column_config={
+            "base_rate": st.column_config.NumberColumn(format="%.3f"),
+            "global_thr": st.column_config.NumberColumn("global thr", format="%.3f"),
+            "global_prec": st.column_config.NumberColumn("global prec", format="%.3f"),
+            "ps_thr": st.column_config.NumberColumn("ps thr", format="%.4f"),
+            "ps_prec": st.column_config.NumberColumn("ps prec", format="%.3f"),
+            "Δprec": st.column_config.NumberColumn("Δ prec", format="%.3f"),
+        },
+    )
+    st.caption("Per-search thresholds tuned on the SAME live matured items (in-sample ⇒ optimistic). 'global' = deployed single threshold; 'ps' = lowest threshold per search hitting the precision target with ≥ min count. Δ = per-search − global.")
+
+
+def render_threshold_compare(base, pattern, key_prefix):
+    """Per search: best model under the run's GLOBAL threshold vs best under PER-SEARCH
+    thresholds, from a model's offline per_search_threshold_comparison.csv (held-out test)."""
+    run = _latest_run_with(base, pattern, "per_search_threshold_comparison.csv")
+    if run is None:
+        st.info(f"No offline threshold-comparison run under `{base}`.")
+        return
+    df = pd.read_csv(run / "per_search_threshold_comparison.csv", low_memory=False)
+    st.caption(f"Offline run: `{run.name}` — held-out test split")
+    if df.empty or "search_name" not in df.columns:
+        st.warning("Comparison file empty.")
+        return
+
+    g = df.dropna(subset=["threshold_precision_global"]).copy()
+    g = g[pd.to_numeric(g.get("threshold_count_global"), errors="coerce").fillna(0) > 0]
+    g = g.sort_values(["threshold_precision_global", "threshold_count_global"], ascending=False).drop_duplicates("search_name", keep="first")
+    g = g[["search_name", "approach", "threshold", "threshold_precision_global", "threshold_count_global", "threshold_recall_global"]].rename(
+        columns={"approach": "global_model", "threshold": "global_thr", "threshold_precision_global": "global_prec", "threshold_count_global": "global_n", "threshold_recall_global": "global_recall"})
+
+    p = df.dropna(subset=["threshold_precision_per_search"]).copy()
+    p = p[pd.to_numeric(p.get("threshold_count_per_search"), errors="coerce").fillna(0) > 0]
+    p = p.sort_values(["threshold_precision_per_search", "threshold_count_per_search"], ascending=False).drop_duplicates("search_name", keep="first")
+    p = p[["search_name", "approach", "per_search_threshold", "threshold_precision_per_search", "threshold_count_per_search", "threshold_recall_per_search"]].rename(
+        columns={"approach": "persearch_model", "per_search_threshold": "ps_thr", "threshold_precision_per_search": "ps_prec", "threshold_count_per_search": "ps_n", "threshold_recall_per_search": "ps_recall"})
+
+    merged = g.merge(p, on="search_name", how="outer").sort_values("search_name")
+    merged["prec_delta"] = merged["ps_prec"] - merged["global_prec"]
+    merged["n_delta"] = merged["ps_n"] - merged["global_n"]
+
+    st.subheader("Best model per search — global vs per-search threshold")
+    st.dataframe(
+        merged, width="stretch", hide_index=True,
+        column_config={
+            "global_thr": st.column_config.NumberColumn("global thr", format="%.4f"),
+            "global_prec": st.column_config.NumberColumn("global prec", format="%.3f"),
+            "global_recall": st.column_config.NumberColumn("global recall", format="%.3f"),
+            "ps_thr": st.column_config.NumberColumn("ps thr", format="%.4f"),
+            "ps_prec": st.column_config.NumberColumn("ps prec", format="%.3f"),
+            "ps_recall": st.column_config.NumberColumn("ps recall", format="%.3f"),
+            "prec_delta": st.column_config.NumberColumn("Δ prec (ps−global)", format="%.3f"),
+            "n_delta": st.column_config.NumberColumn("Δ selected", format="%d"),
+        },
+    )
+    st.caption("`global thr` = that approach's pooled-validation threshold (one per approach, NOT per search); `ps thr` = tuned per search. Best model can differ between the two strategies. Positive Δ prec ⇒ per-search wins for that search.")
+
+
 def render_model_results_section(
     title: str,
     run_dir: Path,
@@ -559,11 +883,6 @@ if st.sidebar.button("↻ Refresh", width="stretch"):
 
 st.sidebar.caption(f"Updated: {_now_utc().strftime('%H:%M:%S')} UTC")
 st.sidebar.divider()
-auto_refresh_results = st.sidebar.toggle("Auto-refresh page", value=True)
-refresh_seconds = st.sidebar.slider("Refresh interval (seconds)", 15, 300, 60, step=15)
-if auto_refresh_results:
-    install_browser_autorefresh(refresh_seconds)
-st.sidebar.divider()
 log_lines = st.sidebar.slider("Log lines to show", 20, 200, 60, step=10)
 show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 
@@ -572,157 +891,23 @@ show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 PHOTO_DATASET = ROOT / "data" / "experiments" / "photo_arbitrage" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
 PHOTO_LABELS = ROOT / "data" / "experiments" / "photo_arbitrage" / "labels" / "photo_quality_labels.csv"
 
-GIANT_MODEL_LIVE_RUNS = ROOT / "data" / "experiments" / "basic_5_giant_model" / "live_scoring"
+GIANT_MODEL_LIVE_RUNS = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "live_scoring"
+VISUAL_GIANT_LIVE_RUNS = ROOT / "data" / "experiments" / "giant_basic_visual" / "live_scoring"
+FULLSCRAPE_GIANT_LIVE_RUNS = ROOT / "data" / "experiments" / "full_scrape_giant_model" / "live_runs"
+BASIC5_OFFLINE_RUNS = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "offline_runs"
+VISUAL_OFFLINE_RUNS = ROOT / "data" / "experiments" / "giant_basic_visual" / "offline_runs"
+FULLSCRAPE_OFFLINE_RUNS = ROOT / "data" / "experiments" / "full_scrape_giant_model" / "offline_runs"
 
-tab_scrape, tab_bench, tab_tts, tab_giant, tab_results, tab_eventual, tab_telegram, tab_photo = st.tabs([
-    "Live Scraping",
-    "Benchmark (Cascade)",
+tab_tts, tab_basic5, tab_visual, tab_fullscrape, tab_threshcompare, tab_eventual, tab_telegram, tab_photo = st.tabs([
     "Time-to-Sell Collector",
-    "Giant Model Live",
-    "Model Results",
+    "Giant Basic5",
+    "Giant Basic5 Visual",
+    "Full-Scrape Giant",
+    "Threshold Compare",
     "Eventual Sales",
     "Telegram",
     "Photo Labeling",
 ])
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Live Scraping
-# ════════════════════════════════════════════════════════════════════════════
-
-with tab_scrape:
-    scrape_age = file_age(SCRAPE_LOG)
-    scrape_running = scrape_age < 10  # log written in last 10 min
-
-    status_row("Live Scraper", scrape_running, age_str(scrape_age))
-
-    # ── per-search summary ─────────────────────────────────────────────────
-    st.subheader("Per-search snapshot")
-    searches = sorted(d.name for d in SIMPLE_SCRAPE.iterdir() if d.is_dir() and d.name != "logs")
-    rows = []
-    for s in searches:
-        base = SIMPLE_SCRAPE / s
-        big = base / "big_raw.csv"
-        sold = base / "sold_df.csv"
-        rows.append({
-            "Search": s,
-            "big_raw rows": count_csv_rows(big),
-            "sold rows": count_csv_rows(sold),
-            "big_raw updated": age_str(file_age(big)),
-            "sold updated": age_str(file_age(sold)),
-        })
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    # ── log tail ───────────────────────────────────────────────────────────
-    st.subheader("Scraper log (tail)")
-    st.code(tail_log(SCRAPE_LOG, log_lines), language=None)
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Benchmark (Cascade)
-# ════════════════════════════════════════════════════════════════════════════
-
-with tab_bench:
-    bench_log_age = min(file_age(CASCADE_LOG), file_age(CASCADE_LOOP_LOG))
-    # Cascade is stopped; do not rely on stale PID/log files
-    bench_running = False
-
-    status_row("Cascade Benchmark", bench_running, age_str(bench_log_age))
-    st.warning("Cascade is currently stopped.")
-
-    # ── manifest info ──────────────────────────────────────────────────────
-    manifest = read_json_safe(CASCADE_MANIFEST)
-    if manifest:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Searches", len(manifest.get("searches", [])))
-        col2.metric("Stage 1", manifest.get("stage1_source", "—"))
-        col3.metric("Recheck schedule", manifest.get("recheck_schedule", "—"))
-
-    # ── latest iteration status ────────────────────────────────────────────
-    status = read_json_safe(CASCADE_STATUS)
-    if status:
-        st.subheader("Last iteration")
-        s_col1, s_col2, s_col3, s_col4 = st.columns(4)
-        s_col1.metric("Status", status.get("status", "—"))
-        s_col2.metric("Due rows", status.get("due_rows", "—"))
-        s_col3.metric("Checked rows", status.get("checked_rows", "—"))
-        s_col4.metric("Dry run", str(status.get("dry_run", "—")))
-
-    # ── tracked items ──────────────────────────────────────────────────────
-    df = read_csv_safe(CASCADE_TRACKED)
-    if df is not None:
-        st.subheader(f"Tracked items ({len(df)} total)")
-
-        DISPLAY_COLS = ["SearchName", "Title", "Brand", "Price", "Likes",
-                        "Stage1Model", "Stage1Score", "Stage1Threshold",
-                        "Stage2Model", "Stage2Score", "Stage2Threshold",
-                        "Stage2Passed", "Stage2Status",
-                        "first_stage1_pass_at", "last_rechecked_at",
-                        "last_recheck_status", "sold_at", "Link"]
-        available = [c for c in DISPLAY_COLS if c in df.columns]
-        df_show = df[available].copy()
-
-        # Colour-code by outcome
-        # Normalise Stage2Passed to bool (mixed True/'True'/1.0/'False'/0.0 in CSV)
-        if "Stage2Passed" in df_show.columns:
-            df_show["Stage2Passed"] = df_show["Stage2Passed"].map(
-                lambda x: str(x).strip().lower() in ("true", "1", "1.0")
-            )
-
-        search_filter = st.multiselect(
-            "Filter by search",
-            options=sorted(df["SearchName"].dropna().unique()),
-            default=[],
-        )
-        if search_filter:
-            df_show = df_show[df_show["SearchName"].isin(search_filter)]
-
-        stage2_filter = st.selectbox(
-            "Stage 2 status",
-            ["All", "Passed", "Not passed", "Sold"],
-            index=0,
-        )
-        if stage2_filter == "Passed" and "Stage2Passed" in df_show.columns:
-            df_show = df_show[df_show["Stage2Passed"] == True]  # noqa: E712
-        elif stage2_filter == "Not passed" and "Stage2Passed" in df_show.columns:
-            df_show = df_show[df_show["Stage2Passed"] == False]  # noqa: E712
-        elif stage2_filter == "Sold" and "sold_at" in df_show.columns:
-            df_show = df_show[df_show["sold_at"].notna()]
-
-        col_cfg = {}
-        if "Link" in df_show.columns:
-            col_cfg["Link"] = st.column_config.LinkColumn("Link", display_text="Open")
-        if "Stage1Score" in df_show.columns:
-            col_cfg["Stage1Score"] = st.column_config.NumberColumn("S1 Score", format="%.3f")
-        if "Stage2Score" in df_show.columns:
-            col_cfg["Stage2Score"] = st.column_config.NumberColumn("S2 Score", format="%.3f")
-
-        st.dataframe(df_show, width="stretch", hide_index=True, column_config=col_cfg)
-
-        # ── quick summary ──────────────────────────────────────────────────
-        st.subheader("Per-search breakdown")
-        grp_cols = {"Count": "size"}
-        if "sold_at" in df.columns:
-            sold_counts = df.groupby("SearchName")["sold_at"].apply(lambda x: x.notna().sum()).rename("Sold")
-        else:
-            sold_counts = None
-
-        grp = df.groupby("SearchName").size().rename("Tracked").reset_index()
-        if sold_counts is not None:
-            grp = grp.merge(sold_counts.reset_index(), on="SearchName", how="left")
-        if "Stage2Passed" in df.columns:
-            s2_bool = df["Stage2Passed"].map(
-                lambda x: str(x).strip().lower() in ("true", "1", "1.0")
-            )
-            passed = df.groupby("SearchName").apply(lambda g: s2_bool.loc[g.index].sum()).rename("Stage2 Passed").astype(int)
-            grp = grp.merge(passed.reset_index(), on="SearchName", how="left")
-        st.dataframe(grp, width="stretch", hide_index=True)
-
-    # ── log tail ───────────────────────────────────────────────────────────
-    with st.expander("Cascade loop log (tail)"):
-        st.code(tail_log(CASCADE_LOOP_LOG, log_lines), language=None)
-    with st.expander("Nohup log (tail)"):
-        st.code(tail_log(CASCADE_LOG, log_lines), language=None)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -919,274 +1104,40 @@ with tab_tts:
             st.code(tail_log(collector["log_path"], log_lines), language=None)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Giant Model Live
-# ════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — Giant Basic5
+# ══════════════════════════════════════════════════════════════════════════════
 
-with tab_giant:
-    ALL_GIANT_SEARCHES = "__all__"
-
-    def latest_giant_live_run() -> Path | None:
-        candidates = sorted(
-            (p for p in GIANT_MODEL_LIVE_RUNS.glob("live_scoring_*") if p.is_dir() and (p / "manifest.json").exists()),
-            reverse=True,
-        )
-        return candidates[0] if candidates else None
-
-    giant_run = latest_giant_live_run()
-    if giant_run is None:
-        st.info("No live giant-model scoring runs found yet.")
-    else:
-        manifest = read_json_safe(giant_run / "manifest.json") or {}
-        summary_path = giant_run / "live_scored_summary.csv"
-        performance_path = giant_run / "live_scored_window_performance.csv"
-        scored_path = giant_run / "live_scored_items.csv"
-
-        st.caption(f"Run: `{giant_run.name}`")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Offline run", manifest.get("offline_run", "—"))
-        col2.metric("Models", len(manifest.get("approaches", [])) or ("1" if manifest.get("model") else "—"))
-        col3.metric("Scored rows", count_csv_rows(scored_path))
-        col4.metric("Scored", age_str(file_age(scored_path)))
-
-        summary_df = pd.read_csv(summary_path, low_memory=False) if summary_path.exists() else pd.DataFrame()
-        performance_df = pd.read_csv(performance_path, low_memory=False) if performance_path.exists() else pd.DataFrame()
-        scored_df = pd.read_csv(scored_path, low_memory=False) if scored_path.exists() else pd.DataFrame()
-
-        if not summary_df.empty and "approach" not in summary_df.columns:
-            summary_df["approach"] = "xgboost_basic_v1"
-        if not performance_df.empty and "approach" not in performance_df.columns:
-            performance_df["approach"] = "xgboost_basic_v1"
-            performance_df["search_name"] = ALL_GIANT_SEARCHES
-
-        approaches = manifest.get("approaches") or sorted(summary_df.get("approach", pd.Series(dtype=str)).dropna().astype(str).unique())
-        searches = sorted(summary_df.get("search_name", pd.Series(dtype=str)).dropna().astype(str).unique())
-        available_windows = sorted(pd.to_numeric(performance_df.get("hours", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).unique())
-        preferred_windows = [h for h in [72, 48, 24, 12, 6, 4, 2, 1] if h in available_windows]
-        selected_window = st.selectbox(
-            "Outcome window",
-            options=preferred_windows or available_windows or [72],
-            index=0,
-            key="giant_model_window",
-        )
-
-        if not performance_df.empty:
-            total_passed = summary_df.groupby("approach", as_index=False)["passed"].sum().rename(columns={"passed": "passed_total"})
-            overall = performance_df[
-                performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
-                & performance_df["hours"].eq(selected_window)
-            ].merge(total_passed, on="approach", how="left")
-            st.subheader(f"Model comparison at {selected_window}h")
-            st.dataframe(
-                overall[
-                    [c for c in ["approach", "passed_total", "evaluated", "sold", "precision", "coverage"] if c in overall.columns]
-                ].sort_values(["precision", "sold", "evaluated", "passed_total"], ascending=[False, False, False, False], na_position="last"),
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "precision": st.column_config.NumberColumn(format="%.3f"),
-                    "coverage": st.column_config.NumberColumn(format="%.3f"),
-                },
-            )
-
-        if approaches:
-            selected_approach = st.selectbox(
-                "Model",
-                options=list(approaches),
-                index=list(approaches).index("xgboost_basic_v1") if "xgboost_basic_v1" in approaches else 0,
-                key="giant_model_approach",
-            )
-            comparison_search = st.selectbox(
-                "Compare search",
-                options=["All searches", *searches],
-                index=0,
-                key="giant_model_search_compare",
-            )
-
-            st.subheader("Per-search model comparison")
-            comparison = summary_df.copy()
-            if not performance_df.empty:
-                search_perf = performance_df[
-                    ~performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
-                    & performance_df["hours"].eq(selected_window)
-                ]
-                comparison = comparison.merge(
-                    search_perf[["approach", "search_name", "evaluated", "sold", "precision", "coverage"]],
-                    on=["approach", "search_name"],
-                    how="left",
-                )
-            if comparison_search != "All searches":
-                comparison = comparison[comparison["search_name"].eq(comparison_search)]
-            comparison_cols = [
-                "approach",
-                "search_name",
-                "threshold",
-                "passed",
-                "pass_rate",
-                "evaluated",
-                "sold",
-                "precision",
-                "mean_score",
-                "p95_score",
-                "max_score",
-                "max_margin",
-            ]
-            st.dataframe(
-                comparison[[c for c in comparison_cols if c in comparison.columns]].sort_values(
-                    ["search_name", "precision", "sold", "passed"],
-                    ascending=[True, False, False, False],
-                    na_position="last",
-                ),
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "threshold": st.column_config.NumberColumn(format="%.4f"),
-                    "pass_rate": st.column_config.NumberColumn(format="%.3f"),
-                    "precision": st.column_config.NumberColumn(format="%.3f"),
-                    "mean_score": st.column_config.NumberColumn(format="%.4f"),
-                    "p95_score": st.column_config.NumberColumn(format="%.4f"),
-                    "max_score": st.column_config.NumberColumn(format="%.4f"),
-                    "max_margin": st.column_config.NumberColumn(format="%.4f"),
-                },
-            )
-
-            model_summary = summary_df[summary_df["approach"].eq(selected_approach)].copy()
-            if not performance_df.empty:
-                model_perf = performance_df[
-                    performance_df["approach"].eq(selected_approach)
-                    & ~performance_df["search_name"].eq(ALL_GIANT_SEARCHES)
-                    & performance_df["hours"].eq(selected_window)
-                ]
-                model_summary = model_summary.merge(
-                    model_perf[["search_name", "evaluated", "sold", "precision", "coverage"]],
-                    on="search_name",
-                    how="left",
-                )
-
-            st.subheader(f"{selected_approach} search details")
-            st.dataframe(
-                model_summary[
-                    [
-                        c
-                        for c in [
-                            "search_name",
-                            "threshold",
-                            "total_tracked",
-                            "passed",
-                            "pass_rate",
-                            "evaluated",
-                            "sold",
-                            "precision",
-                            "mean_score",
-                            "p90_score",
-                            "p95_score",
-                            "max_score",
-                            "max_margin",
-                            "within_0_05_below",
-                        ]
-                        if c in model_summary.columns
-                    ]
-                ],
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "threshold": st.column_config.NumberColumn(format="%.4f"),
-                    "pass_rate": st.column_config.NumberColumn(format="%.3f"),
-                    "precision": st.column_config.NumberColumn(format="%.3f"),
-                    "mean_score": st.column_config.NumberColumn(format="%.4f"),
-                    "p90_score": st.column_config.NumberColumn(format="%.4f"),
-                    "p95_score": st.column_config.NumberColumn(format="%.4f"),
-                    "max_score": st.column_config.NumberColumn(format="%.4f"),
-                    "max_margin": st.column_config.NumberColumn(format="%.4f"),
-                },
-            )
-
-            pass_col = f"pass__{selected_approach}"
-            score_col = f"score__{selected_approach}"
-            threshold_col = f"threshold__{selected_approach}"
-            if pass_col not in scored_df.columns and selected_approach == "xgboost_basic_v1":
-                pass_col = "xgboost_pass"
-                score_col = "xgboost_score"
-                threshold_col = "xgboost_threshold"
-
-            if pass_col in scored_df.columns:
-                passed = scored_df[scored_df[pass_col] == True].copy()
-                item_search = st.selectbox(
-                    "Passed item search",
-                    options=["All searches", *searches],
-                    index=0,
-                    key="giant_model_passed_item_search",
-                )
-                if item_search != "All searches":
-                    passed = passed[passed["SearchName"].astype(str).eq(item_search)]
-                st.subheader(f"Passed items ({len(passed)})")
-                if passed.empty:
-                    st.info("No items passed this model/search threshold yet.")
-                else:
-                    show_cols = [
-                        "SearchName",
-                        "Title",
-                        "Brand",
-                        "Price",
-                        "Likes",
-                        score_col,
-                        threshold_col,
-                        "last_recheck_status",
-                        "sold_at",
-                        "Link",
-                    ]
-                    available = [c for c in show_cols if c in passed.columns]
-                    col_cfg = {}
-                    if "Link" in available:
-                        col_cfg["Link"] = st.column_config.LinkColumn("Link", display_text="Open")
-                    if score_col in available:
-                        col_cfg[score_col] = st.column_config.NumberColumn("Score", format="%.4f")
-                    if threshold_col in available:
-                        col_cfg[threshold_col] = st.column_config.NumberColumn("Threshold", format="%.4f")
-                    st.dataframe(
-                        passed[available].sort_values(score_col, ascending=False),
-                        width="stretch",
-                        hide_index=True,
-                        column_config=col_cfg,
-                    )
-
-                if score_col in scored_df.columns:
-                    with st.expander("Mean score by search", expanded=False):
-                        st.bar_chart(scored_df.groupby("SearchName")[score_col].mean().sort_values(ascending=False))
-            else:
-                st.warning(f"No pass column found for `{selected_approach}` in `{scored_path.name}`.")
+with tab_basic5:
+    st.subheader("Giant Basic5 — live matured precision/coverage")
+    render_giant_live(GIANT_MODEL_LIVE_RUNS, "basic5")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Model Results
-# ════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — Giant Basic5 Visual
+# ══════════════════════════════════════════════════════════════════════════════
 
-with tab_results:
-    cascade_runs = list_live_runs(CASCADE_RESULTS_RUNS, "cascade")
+with tab_visual:
+    st.subheader("Giant Basic5 Visual — live matured precision/coverage")
+    render_giant_live(VISUAL_GIANT_LIVE_RUNS, "visual")
 
-    if not cascade_runs:
-        st.warning("No cascade live runs found.")
-    else:
-        cascade_run = st.selectbox(
-            "Cascade run",
-            cascade_runs,
-            index=0,
-            format_func=lambda p: p.name,
-            key="model_results_cascade_run",
-        )
 
-        st.divider()
-        render_model_results_section(
-            "Cascade",
-            cascade_run,
-            load_cascade_results,
-            [
-                ("S1 pass", "unique_stage1_pass"),
-                ("S2 pass", "unique_stage2_pass"),
-                ("S2 sold", "sold_stage2_pass"),
-                ("Tracked rows", "tracked_rows"),
-            ],
-        )
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — Full-Scrape Giant
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_fullscrape:
+    st.subheader("Full-Scrape Giant — live precision/coverage")
+    render_fullscrape_giant_live(FULLSCRAPE_GIANT_LIVE_RUNS, "fullscrape")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — Threshold Compare (global vs per-search)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_threshcompare:
+    st.subheader("Global vs Per-Search Threshold — main_image_scores (live)")
+    render_threshold_compare_live(VISUAL_GIANT_LIVE_RUNS, "tclive")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1284,6 +1235,9 @@ with tab_telegram:
         return df
 
     df_tg = load_telegram_events()
+    if "price" in df_tg.columns:
+        # price arrives mixed str ('55.00') / float / NaN; coerce so grouping + Arrow render work
+        df_tg["price"] = pd.to_numeric(df_tg["price"], errors="coerce")
 
     if df_tg.empty:
         st.info("No Telegram events recorded yet. Events will appear here once the bot sends items or receives button presses.")
@@ -1361,7 +1315,9 @@ with tab_telegram:
                     except Exception:
                         pass
                 if cache_rows:
-                    st.dataframe(pd.DataFrame(cache_rows), width="stretch", hide_index=True)
+                    cache_df = pd.DataFrame(cache_rows)
+                    cache_df["price"] = pd.to_numeric(cache_df["price"], errors="coerce")
+                    st.dataframe(cache_df, width="stretch", hide_index=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════

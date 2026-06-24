@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[4]
-EXPERIMENT_ROOT = ROOT / "data" / "experiments" / "basic_5_giant_model"
+ROOT = Path(__file__).resolve().parents[3]
+EXPERIMENT_ROOT = Path(__file__).resolve().parent / "data"
 OFFLINE_RUNS_DIR = EXPERIMENT_ROOT / "offline_runs"
 MODELS_DIR = EXPERIMENT_ROOT / "models"
 

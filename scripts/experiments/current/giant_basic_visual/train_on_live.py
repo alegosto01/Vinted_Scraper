@@ -39,7 +39,7 @@ from experiments.deal_finder.modeling import choose_threshold, threshold_metrics
 
 LIVE_SCORED = (
     ROOT
-    / "data/experiments/basic_5_giant_model/live_scoring"
+    / "experiments/current/basic_5_giant_model/data/live_scoring"
     / "live_scoring_20260613_152451"
     / "live_scored_items.csv"
 )

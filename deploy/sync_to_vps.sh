@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # --- edit these for your VPS ---
-VPS_HOST="${VPS_HOST:-vinted@YOUR_VPS_IP}"
+VPS_HOST="${VPS_HOST:-vinted@167.233.132.113}"
 VPS_REPO="${VPS_REPO:-/home/vinted/Vinted_New_Version}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 # --------------------------------

@@ -28,7 +28,7 @@ from experiments.current.full_scrape_giant_model.paths import (  # noqa: E402
     run_id,
 )
 
-BASIC5_OFFLINE = ROOT / "data" / "experiments" / "basic_5_giant_model" / "offline_runs"
+BASIC5_OFFLINE = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "offline_runs"
 
 
 def _latest(root: Path, glob: str, needs: str) -> Path:

@@ -35,6 +35,8 @@ from experiments.current.full_scrape_giant_model.dataset import (  # noqa: E402
     prepare_full_frame,
 )
 from experiments.current.full_scrape_giant_model.image_filter import offline_image_filter  # noqa: E402
+from experiments.current.full_scrape_giant_model.live_objective import LIVE_SPEC_NAMES  # noqa: E402
+from experiments.current.full_scrape_giant_model.visual_features import merge_offline_visual_features  # noqa: E402
 from experiments.current.full_scrape_giant_model.paths import (  # noqa: E402
     MODELS_DIR,
     OFFLINE_RUNS_DIR,
@@ -115,11 +117,18 @@ def train_one(
     spec: mz.GiantSpec,
     seed: int,
     run_name: str,
+    feature_mode: str = "full_scrape",
+    visual_cols: list[str] | None = None,
 ) -> tuple[dict[str, Any], np.ndarray, np.ndarray]:
     started = time.perf_counter()
     numeric, categorical, text = mz.select_full_features(splits.train, spec)
     if not numeric and not categorical and not text:
         raise ValueError("no usable full-scrape features")
+    visual_used: list[str] = []
+    if feature_mode == "full_scrape_visual" and visual_cols:
+        extra = [c for c in visual_cols if mz._has_numeric_signal(splits.train, c) and c not in numeric]
+        visual_used = base_sweep.safe_selected_features(extra, splits.train)
+        numeric = numeric + visual_used
     model = mz.make_model(spec, numeric, categorical, text)
     model.fit(splits.train, splits.train[TARGET_COL].astype(int))
 
@@ -134,10 +143,12 @@ def train_one(
         )["threshold"]
     )
 
-    artifact_path = MODELS_DIR / f"{run_name}_full_scrape_{spec.name}_seed{seed}.pkl"
+    family = "full_scrape_visual" if feature_mode == "full_scrape_visual" else "full_scrape"
+    artifact_path = MODELS_DIR / f"{run_name}_{family}_{spec.name}_seed{seed}.pkl"
     save_pickle(artifact_path, model)
     metadata = {
         "experiment_family": "full_scrape_giant_model",
+        "feature_mode": feature_mode,
         "approach": spec.name,
         "model_kind": spec.kind,
         "origin": spec.origin,
@@ -145,12 +156,13 @@ def train_one(
         "numeric_features": numeric,
         "categorical_features": categorical,
         "text_features": text,
+        "visual_features": visual_used,
         "threshold": threshold,
         "label": TARGET_COL,
         "seed": int(seed),
         "split": "stratified_search_label_random_60_20_20",
     }
-    write_json(MODELS_DIR / f"{run_name}_full_scrape_{spec.name}_seed{seed}_metadata.json", base_sweep.to_builtin(metadata))
+    write_json(MODELS_DIR / f"{run_name}_{family}_{spec.name}_seed{seed}_metadata.json", base_sweep.to_builtin(metadata))
 
     y_val = splits.validation[TARGET_COL].astype(int).to_numpy()
     y_test = splits.test[TARGET_COL].astype(int).to_numpy()
@@ -201,6 +213,7 @@ def run(
     *,
     searches: list[str] | None = None,
     approaches: list[str] | None = None,
+    feature_mode: str = "full_scrape",
     seed: int = base_sweep.DEFAULT_SEED,
     out_dir: Path | None = None,
     limit_rows: int | None = None,
@@ -208,13 +221,16 @@ def run(
 ) -> dict[str, Any]:
     ensure_experiment_dirs()
     selected_searches = list(dict.fromkeys(searches or MAIN_SEARCHES))
+    if approaches is None and feature_mode == "full_scrape_visual":
+        approaches = list(LIVE_SPEC_NAMES)
     specs = [s for s in mz.ZOO if approaches is None or s.name in set(approaches)]
     if not specs:
         raise ValueError("No approaches selected")
-    out_dir = assert_experiment_path(out_dir if out_dir is not None else OFFLINE_RUNS_DIR / run_id("full_scrape_giant"))
+    default_prefix = "full_scrape_giant_visual" if feature_mode == "full_scrape_visual" else "full_scrape_giant"
+    out_dir = assert_experiment_path(out_dir if out_dir is not None else OFFLINE_RUNS_DIR / run_id(default_prefix))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[full_scrape_giant] loading searches={selected_searches}", flush=True)
+    print(f"[full_scrape_giant] loading searches={selected_searches} feature_mode={feature_mode}", flush=True)
     frame = prepare_full_frame(load_giant_frame(selected_searches))
     total_before = int(len(frame))
 
@@ -232,6 +248,11 @@ def run(
         for _, group in frame.groupby(["SearchName", TARGET_COL], sort=False):
             parts.append(group.sample(min(limit_rows, len(group)), random_state=seed))
         frame = pd.concat(parts, ignore_index=True).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+    visual_cols: list[str] = []
+    if feature_mode == "full_scrape_visual":
+        frame, visual_cols = merge_offline_visual_features(frame)
+        print(f"[full_scrape_giant] visual features merged: {len(visual_cols)} ({', '.join(visual_cols)})", flush=True)
 
     if frame[TARGET_COL].nunique() < 2:
         raise ValueError("Combined dataset has only one label class after filtering")
@@ -257,7 +278,7 @@ def run(
         step = time.perf_counter()
         print(f"[full_scrape_giant] training {spec.name}", flush=True)
         try:
-            row, vs, ts = train_one(splits, spec=spec, seed=seed, run_name=out_dir.name)
+            row, vs, ts = train_one(splits, spec=spec, seed=seed, run_name=out_dir.name, feature_mode=feature_mode, visual_cols=visual_cols)
             metric_rows.append(row)
             val_scores[spec.name] = vs
             test_scores[spec.name] = ts
@@ -281,6 +302,8 @@ def run(
     summary_payload = {
         "run_dir": str(out_dir),
         "seed": seed,
+        "feature_mode": feature_mode,
+        "visual_features": visual_cols,
         "searches": selected_searches,
         "approaches": [s.name for s in specs],
         "trained_rows": trained,
@@ -307,6 +330,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train the full-scrape giant model family across the main searches.")
     p.add_argument("--search", action="append", default=[], help="Search to include. Defaults to the main searches.")
     p.add_argument("--approach", action="append", default=[], choices=[s.name for s in mz.ZOO])
+    p.add_argument("--feature-mode", default="full_scrape", choices=["full_scrape", "full_scrape_visual"])
     p.add_argument("--seed", type=int, default=base_sweep.DEFAULT_SEED)
     p.add_argument("--out-dir", default=None)
     p.add_argument("--limit-rows", type=int, default=None, help="Per search/label sample cap for smoke runs.")
@@ -319,6 +343,7 @@ def main() -> None:
     run(
         searches=args.search or None,
         approaches=args.approach or None,
+        feature_mode=args.feature_mode,
         seed=args.seed,
         out_dir=Path(args.out_dir) if args.out_dir else None,
         limit_rows=args.limit_rows,

@@ -19,13 +19,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = ROOT / "scripts"
 for path in (SCRIPTS_DIR, ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import experiments.clustering_approach.vinted_index_score as score
+import experiments.old.clustering_approach.vinted_index_score as score
 from analysis_pipeline.scoring.visual_rerank import image_from_source, normalize_image_sources
 
 # ---------- text utils ----------

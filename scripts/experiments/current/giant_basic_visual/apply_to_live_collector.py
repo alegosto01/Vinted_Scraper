@@ -12,9 +12,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[4]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
 from experiments.deal_finder.modeling import score_with_model  # noqa: E402

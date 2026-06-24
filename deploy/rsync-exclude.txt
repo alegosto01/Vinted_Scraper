@@ -3,6 +3,7 @@
 visual_features/
 raw_snapshots/
 image_cache/
+rechecks/
 *.png
 *.jpg
 *.jpeg

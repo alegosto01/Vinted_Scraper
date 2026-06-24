@@ -30,6 +30,7 @@ from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
 from experiments.deal_finder.modeling import choose_threshold, score_with_model  # noqa: E402
 from experiments.current.full_scrape_giant_model.full_scrape_features import add_full_scrape_features  # noqa: E402
 from experiments.full_scrape_model.compare_feature_modalities import VISUAL_NUMERIC  # noqa: E402
+from experiments.current.full_scrape_giant_model.visual_features import load_live_visual_features  # noqa: E402
 from experiments.current.full_scrape_giant_model import metrics as fm  # noqa: E402
 from experiments.current.full_scrape_giant_model import model_zoo as mz  # noqa: E402
 from experiments.current.full_scrape_giant_model.image_filter import live_image_filter  # noqa: E402
@@ -73,28 +74,6 @@ def latest_live_dir() -> Path:
     return runs[0]
 
 
-def load_visual_features(live_dir: Path) -> pd.DataFrame:
-    """Concatenate per-snapshot visual feature CSVs, keep item_id + VISUAL_NUMERIC."""
-    vdir = live_dir / "visual_features"
-    files = sorted(vdir.glob("*.csv"))
-    if not files:
-        return pd.DataFrame(columns=["item_id"])
-    keep = ["item_id"] + list(VISUAL_NUMERIC)
-    frames = []
-    for f in files:
-        head = pd.read_csv(f, nrows=0).columns
-        usecols = [c for c in keep if c in head]
-        if "item_id" not in usecols:
-            continue
-        frames.append(pd.read_csv(f, usecols=usecols, low_memory=False))
-    if not frames:
-        return pd.DataFrame(columns=["item_id"])
-    visual = pd.concat(frames, ignore_index=True)
-    visual["item_id"] = visual["item_id"].astype(str).str.strip()
-    visual = visual[visual["item_id"].str.len() > 0].drop_duplicates("item_id", keep="last")
-    return visual.reset_index(drop=True)
-
-
 def assemble(live_dir: Path, window: str) -> tuple[pd.DataFrame, list[str], pd.Series]:
     raw = pd.read_csv(live_dir / "tracked_items.csv", low_memory=False)
     raw["SearchName"] = raw.get("SearchName", "").fillna("").astype(str)
@@ -102,7 +81,7 @@ def assemble(live_dir: Path, window: str) -> tuple[pd.DataFrame, list[str], pd.S
     kept, _ = live_image_filter(raw)
     kept = kept.reset_index(drop=True)
 
-    visual = load_visual_features(live_dir)
+    visual = load_live_visual_features(live_dir)
     visual_cols = [c for c in VISUAL_NUMERIC if c in visual.columns]
     merged = kept.merge(visual, on="item_id", how="left", suffixes=("", "_vis"))
 

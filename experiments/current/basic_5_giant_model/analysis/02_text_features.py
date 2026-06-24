@@ -12,9 +12,11 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SCRIPTS_DIR = SCRIPT_DIR.parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = SCRIPT_DIR.parents[3]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 # Shared configuration
 import common

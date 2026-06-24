@@ -14,11 +14,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from experiments.basic_5_giant_model.paths import (  # noqa: E402
+from experiments.current.basic_5_giant_model.paths import (  # noqa: E402
     EXPERIMENT_ROOT,
     MODELS_DIR,
     OFFLINE_RUNS_DIR,
@@ -50,6 +52,9 @@ DEFAULT_SEARCHES = (
     "nike",
     "prada",
     "ps4",
+    "telefoni",
+    "hobby_collezionismo",
+    "donna_accessori_gioielli",
 )
 
 BASIC5_APPROACH_NAMES = (
@@ -371,7 +376,7 @@ def write_report(
         "",
         f"Run folder: `{run_dir}`",
         "",
-        "This experiment trains one global sold/not-sold model across the six active searches.",
+        "This experiment trains one global sold/not-sold model across the active searches.",
         "Each approach uses the Basic5 fields (`Price`, `Likes`, `Title`, `Brand`, `Size`) plus one-hot `SearchName` features.",
         "",
         f"Searches: `{', '.join(searches)}`.",
@@ -551,7 +556,7 @@ def run(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train one global basic_5 model family across six searches.")
-    parser.add_argument("--search", action="append", default=[], help="Search to include. Defaults to the six active searches.")
+    parser.add_argument("--search", action="append", default=[], help="Search to include. Defaults to the active searches.")
     parser.add_argument("--approach", action="append", default=[], choices=BASIC5_APPROACH_NAMES)
     parser.add_argument("--seed", type=int, default=base_sweep.DEFAULT_SEED)
     parser.add_argument("--out-dir", default=None)

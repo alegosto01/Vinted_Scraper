@@ -9,9 +9,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[4]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from experiments.current.basic_5_giant_model.title_features import (  # noqa: E402
     TITLE_BINARY_FEATURES,

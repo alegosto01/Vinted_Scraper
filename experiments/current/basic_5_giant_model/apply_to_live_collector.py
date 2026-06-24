@@ -16,11 +16,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from experiments.basic_5_giant_model.paths import (  # noqa: E402
+from experiments.current.basic_5_giant_model.paths import (  # noqa: E402
     EXPERIMENT_ROOT,
     MODELS_DIR,
     OFFLINE_RUNS_DIR,
@@ -66,7 +68,7 @@ BASIC5_APPROACH_NAMES = (
 )
 
 OFFLINE_RUN_NAME = "basic_5_giant_20260525_185552"
-NEW_SEARCHES_OFFLINE_RUN_NAME = "basic_5_giant_new_searches_20260609_004047"
+NEW_SEARCHES_OFFLINE_RUN_NAME = "basic_5_giant_20260614_221642"
 MODEL_GROUPS = (
     {
         "offline_run": OFFLINE_RUN_NAME,

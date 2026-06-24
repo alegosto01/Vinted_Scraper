@@ -52,19 +52,7 @@
   "voiceEnabled": true,
   "permissions": {
     "defaultMode": "plan",
-    "deny": [
-      "Bash(rm -rf /)",
-      "Read(.env)",
-      "Read(**/.env)",
-      "Edit(.env)",
-      "Edit(**/.env)",
-      "Write(.env)",
-      "Write(**/.env)",
-      "Edit(data/**)",
-      "Edit(//home/ale/Desktop/vinted/Vinted_New_Version/data/**)",
-      "Write(data/**)",
-      "Write(//home/ale/Desktop/vinted/Vinted_New_Version/data/**)"
-    ],
+    "deny": [],
     "ask": [
       "Bash(rm *)",
       "Bash(rm -rf *)",

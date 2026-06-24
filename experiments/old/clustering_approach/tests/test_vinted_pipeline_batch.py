@@ -5,19 +5,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.clustering_approach.vinted_pipeline_batch import (
+from experiments.old.clustering_approach.vinted_pipeline_batch import (
     combine_feature_blocks,
     select_primary_image_source,
     variant_cluster,
 )
-import experiments.clustering_approach.vinted_pipeline_batch as batch_module
+import experiments.old.clustering_approach.vinted_pipeline_batch as batch_module
 
 
 class VintedPipelineBatchTests(unittest.TestCase):

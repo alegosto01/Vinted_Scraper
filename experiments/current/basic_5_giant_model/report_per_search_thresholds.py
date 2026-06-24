@@ -10,11 +10,17 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from experiments.basic_5_giant_model.paths import assert_experiment_path, write_json  # noqa: E402
+from experiments.current.basic_5_giant_model.paths import (  # noqa: E402
+    OFFLINE_RUNS_DIR,
+    assert_experiment_path,
+    write_json,
+)
 from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
 from experiments.deal_finder.modeling import TARGET_COL, choose_threshold  # noqa: E402
 
@@ -131,8 +137,8 @@ def comparison_rows(per_search: pd.DataFrame, global_thresholds: pd.DataFrame) -
     return merged
 
 
-def latest_run_dir(root: Path) -> Path:
-    base = root / "data" / "experiments" / "basic_5_giant_model" / "offline_runs"
+def latest_run_dir() -> Path:
+    base = OFFLINE_RUNS_DIR
     candidates = sorted(
         (path for path in base.glob("basic_5_giant_*") if path.is_dir() and (path / "validation_scores.csv").exists()),
         reverse=True,
@@ -325,8 +331,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    root = Path(__file__).resolve().parents[4]
-    run_dir = Path(args.run_dir) if args.run_dir else latest_run_dir(root)
+    run_dir = Path(args.run_dir) if args.run_dir else latest_run_dir()
     summary = run_report(run_dir, min_precision=args.min_precision, min_count=args.min_count)
     print(json.dumps(summary, indent=2))
 

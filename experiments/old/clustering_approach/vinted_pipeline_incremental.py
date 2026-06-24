@@ -25,12 +25,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 for path in (ROOT, ROOT / "scripts"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-import experiments.clustering_approach.vinted_index_score as store
+import experiments.old.clustering_approach.vinted_index_score as store
 
 ALIAS_MAP = {
     r"\baf\s?1\b": "air force 1",

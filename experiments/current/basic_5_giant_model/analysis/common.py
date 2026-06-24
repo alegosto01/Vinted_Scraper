@@ -6,11 +6,11 @@ PROJECT_ROOT = Path("/home/ale/Desktop/vinted/Vinted_New_Version")
 
 SOURCE_CSV = (
     PROJECT_ROOT
-    / "data/experiments/basic_5_giant_model/full_scrape_reranker/full_scrape_reranker_20260611_192441/training_frame.csv"
+    / "experiments/old/full_scrape_reranker/data/full_scrape_reranker/full_scrape_reranker_20260611_192441/training_frame.csv"
 )
 
 OUTPUT_DIR = (
-    PROJECT_ROOT / "data/experiments/basic_5_giant_model/analysis/sold_vs_not_72h"
+    PROJECT_ROOT / "experiments/current/basic_5_giant_model/data/analysis/sold_vs_not_72h"
 )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

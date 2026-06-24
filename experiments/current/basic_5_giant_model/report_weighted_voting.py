@@ -11,12 +11,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[3]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_DIR = ROOT / "scripts"
+for _path in (ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from experiments.basic_5_giant_model.paths import assert_experiment_path, write_json  # noqa: E402
-from experiments.basic_5_giant_model.report_per_search_thresholds import (  # noqa: E402
+from experiments.current.basic_5_giant_model.paths import assert_experiment_path, write_json  # noqa: E402
+from experiments.current.basic_5_giant_model.report_per_search_thresholds import (  # noqa: E402
     SCORE_PREFIX,
     approach_from_score_col,
     evaluate_group,
@@ -518,8 +520,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    root = Path(__file__).resolve().parents[4]
-    run_dir = Path(args.run_dir) if args.run_dir else latest_run_dir(root)
+    run_dir = Path(args.run_dir) if args.run_dir else latest_run_dir()
     print(json.dumps(run_report(run_dir, min_precision=args.min_precision, min_count=args.min_count), indent=2))
 
 
