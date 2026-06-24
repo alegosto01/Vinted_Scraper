@@ -1,167 +1,155 @@
-# Deploy: scoring + Telegram bots + dashboard on a VPS, scraper stays local
+# Deploy: scoring + Telegram bots on a VPS, scraper + dashboard stay local
 
-Target VPS: **Hetzner Cloud CX22** (x86, 2 vCPU / 4 GB), Ubuntu 22.04/24.04.
-Sync: **cron rsync over SSH**, laptop → VPS, one-way.
+As-built notes for the Hetzner deploy. The VPS (Hetzner **CX23**, x86, 2 vCPU / 4 GB,
+Ubuntu 24.04) runs the **scoring loop + both Telegram bots**. The **scraper and the
+Streamlit dashboard stay on the laptop**.
 
-## What runs where
+## What runs where — and why
 
 | Component | Where | Why |
 | --- | --- | --- |
-| Collector (scraper) | **Laptop** (home IP) | Datacenter IPs get rate-limited harder; keep on residential IP |
-| Scoring loop (`basic_5_giant_model`, `--send-telegram`) | VPS | CPU-bound, IP-agnostic, no images needed |
-| `bot.py`, `image_bot.py` (Telegram pollers) | VPS | Share accountability/event state with scoring |
-| Streamlit `app.py` | VPS | Reads synced CSVs + local scoring/telegram state |
+| Collector (scraper) | **Laptop** (home IP) | Datacenter IPs get rate-limited harder; keep on the residential IP |
+| Scoring loop (`basic_5_giant_model`, `--send-telegram`) | **VPS** | CPU-only, IP-agnostic, no images needed |
+| `bot.py`, `image_bot.py` (Telegram pollers) | **VPS** | Share accountability/event state with scoring |
+| Streamlit `app.py` (dashboard) | **Laptop** | Reads the full multi-GB `data/` tree + needs torch/pyiqa/libGL — impractical to ship to a 40 GB box. It's read-only viz of laptop data. |
 
-Data flow is **one-way**: collector writes CSVs on the laptop → rsync to VPS → scoring/bot/streamlit read them. Nothing writes back to the laptop.
+Data flow is **one-way**: collector writes CSVs on the laptop → rsync to VPS → scoring/bots read them.
+
+> ⚠️ The repo layout the VPS needs (`experiments/current/...`) only existed once the
+> `scripts/experiments → experiments` restructure was **committed** (commit `1c5b2c3`).
+> A fresh clone must be at/after that commit, or paths won't resolve.
 
 ---
 
-## 1. Provision the Hetzner instance
+## 1. Provision (Hetzner)
 
-- Hetzner Cloud Console → new project → add server.
-- Type: **CX22** (2 vCPU, 4 GB). Bump to **CX32** (8 GB) only if RAM gets tight later.
-- Image: Ubuntu 22.04/24.04. Add your SSH public key.
-- Location: a region near you / near Vinted IT (Nuremberg/Falkenstein fine).
-- No inbound port for Telegram (outbound polling only). Do **not** open 8501 publicly — reach Streamlit via SSH tunnel (step 8). Optionally enable Hetzner Cloud Firewall allowing inbound 22 only.
-
-You log in as `root` by default.
+- Type **CX23** (2 vCPU / 4 GB / 40 GB), Image **Ubuntu 24.04**, add your SSH public key.
+- No inbound port needed (Telegram is outbound polling; the dashboard is not on the VPS).
 
 ## 2. Base setup on the VPS
 
 ```bash
-ssh root@YOUR_VPS_IP
-
-# --- non-root service user (don't run bots/scoring as root) ---
+ssh root@VPS_IP
+# non-root service user
 adduser --disabled-password --gecos "" vinted
 install -d -m700 -o vinted -g vinted /home/vinted/.ssh
-cp ~/.ssh/authorized_keys /home/vinted/.ssh/authorized_keys
+cp /root/.ssh/authorized_keys /home/vinted/.ssh/authorized_keys
 chown vinted:vinted /home/vinted/.ssh/authorized_keys && chmod 600 /home/vinted/.ssh/authorized_keys
-
-# --- 2 GB swap (CX22 has 4 GB RAM; gives headroom) ---
+# 2 GB swap (CX23 has 4 GB RAM)
 fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
-
-# from here on, work as the vinted user
+apt-get update -qq && apt-get install -y git curl
 su - vinted
 ```
 
 ```bash
-# Miniconda (x86_64)
-curl -L -o miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+# Miniconda x86
+curl -fsSL -o miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash miniconda.sh -b -p $HOME/miniconda3
 $HOME/miniconda3/bin/conda init bash && exec bash
-
+# Recent Miniconda gates the default channels behind a ToS prompt — accept it:
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda create -y -n vinted_scraper python=3.11
-conda activate vinted_scraper
 
-# Clone the repo to the path the units expect
-git clone <YOUR_REPO_URL> $HOME/Vinted_New_Version
+git clone <REPO_URL> $HOME/Vinted_New_Version
 cd $HOME/Vinted_New_Version
-pip install -r requirements.txt
+# Repo has no requirements.txt; use the committed VPS set (no torch/pyiqa/CUDA):
+$HOME/miniconda3/envs/vinted_scraper/bin/pip install -r deploy/requirements_vps.txt
 ```
 
-x86 = no ARM wheel friction; `numpy`/`pandas`/`scikit-learn`/`xgboost`/`lightgbm` install clean. `basic_5_giant_model` scoring needs **no `torch`** (no images) — skip it on the VPS if it's only pulled by the scraper/visual path.
+There is **no committed `requirements.txt`**. `deploy/requirements_vps.txt` is the lean,
+torch-free dependency set for scoring + bots. (The dashboard's heavier deps —
+torch/pyiqa/opencv/libGL — are deliberately excluded since it runs on the laptop.)
 
 ## 3. Copy secrets + models (once, from laptop)
 
 ```bash
-# from repo root on the laptop
-scp .env vinted@YOUR_VPS_IP:~/Vinted_New_Version/.env
+scp .env                                   vinted@VPS_IP:~/Vinted_New_Version/.env
+# the main bot reads BOT_TOKEN from a SEPARATE, gitignored file:
+scp scripts/telegram_scripts/bot_env.env   vinted@VPS_IP:~/Vinted_New_Version/scripts/telegram_scripts/bot_env.env
 
-# model pickles the scoring loop loads
-rsync -az experiments/current/basic_5_giant_model/data/models/ \
-  vinted@YOUR_VPS_IP:~/Vinted_New_Version/experiments/current/basic_5_giant_model/data/models/
+# model pickles (new layout path) + the two threshold tables scoring actually reads:
+B=experiments/current/basic_5_giant_model/data
+rsync -az $B/models/ vinted@VPS_IP:~/Vinted_New_Version/$B/models/
+for r in basic_5_giant_20260525_185552 basic_5_giant_20260614_221642; do
+  ssh vinted@VPS_IP "mkdir -p ~/Vinted_New_Version/$B/offline_runs/$r"
+  scp $B/offline_runs/$r/per_search_threshold_metrics.csv vinted@VPS_IP:~/Vinted_New_Version/$B/offline_runs/$r/
+done
 ```
 
-The `.env` already holds `BOT_TOKEN`, `IMAGE_BOT_TOKEN`, `RECOMMENDED_DEALS_CHAT_ID`, `BOUGHT_ITEMS_CHAT_ID`, `ACCOUNTABILITY_ENABLED`, API keys. The BrightData proxy vars are scraper-only — harmless on the VPS, unused there.
+`.env` holds `IMAGE_BOT_TOKEN`, `RECOMMENDED_DEALS_CHAT_ID`, etc. `BOT_TOKEN` lives only in
+`scripts/telegram_scripts/bot_env.env` — copy both or `vinted-bot` fails with
+`BOT_TOKEN is not configured`.
 
-## 4. First data sync (from laptop)
+## 4. First data sync + recurring sync (from laptop)
 
-Edit the top of `deploy/sync_to_vps.sh` (`VPS_HOST`, `VPS_REPO`, `SSH_KEY`), then:
+`deploy/sync_to_vps.sh` pushes the collector run-dir CSVs (excludes `visual_features/`,
+`raw_snapshots/`, `image_cache/`, `rechecks/` — see `deploy/rsync-exclude.txt`). Edit the
+vars at its top (`VPS_HOST`, `VPS_REPO`, `SSH_KEY`), then:
 
 ```bash
-chmod +x deploy/sync_to_vps.sh
-# create the target dir on the VPS once if your rsync lacks --mkpath
-ssh vinted@YOUR_VPS_IP 'mkdir -p ~/Vinted_New_Version/data/experiments/time_to_sell/live_runs/bin_collector_20260602_214104'
-deploy/sync_to_vps.sh
+ssh vinted@VPS_IP 'mkdir -p ~/Vinted_New_Version/data/experiments/time_to_sell/live_runs/bin_collector_20260602_214104'
+deploy/sync_to_vps.sh   # first push ≈ 200 MB
 ```
 
-First push ≈ 154 MB (CSV state only; `visual_features/` and `raw_snapshots/` are excluded). Later pushes are incremental deltas.
+Recurring sync runs as a **laptop systemd --user timer** (cron was blocked by
+`/var/spool/cron` perms): `~/.config/systemd/user/vinted-sync.{service,timer}`, every 10 min.
 
-## 5. Cron the sync (on laptop)
-
-```bash
-crontab -e
-# every 10 min; logs to /tmp
-*/10 * * * * /home/ale/Desktop/vinted/Vinted_New_Version/deploy/sync_to_vps.sh >> /tmp/vinted_sync.log 2>&1
-```
-
-Collector collects every 2h, so 10-min sync is plenty fresh.
-
-## 6. Install the systemd --user services (on VPS, as `vinted`)
+## 5. Services on the VPS (systemd --user)
 
 ```bash
-# allow user services to run without an active login session
 loginctl enable-linger vinted
-
 mkdir -p ~/.config/systemd/user
-cp ~/Vinted_New_Version/deploy/systemd/*.service ~/.config/systemd/user/
+cp ~/Vinted_New_Version/deploy/systemd/vinted-scoring.service \
+   ~/Vinted_New_Version/deploy/systemd/vinted-bot.service \
+   ~/Vinted_New_Version/deploy/systemd/vinted-image-bot.service \
+   ~/.config/systemd/user/
 systemctl --user daemon-reload
-
-systemctl --user enable --now vinted-scoring vinted-bot vinted-image-bot vinted-streamlit
-systemctl --user status vinted-scoring --no-pager
+systemctl --user enable --now vinted-scoring vinted-bot vinted-image-bot
 journalctl --user -u vinted-scoring -f
 ```
 
-The units reference `%h/Vinted_New_Version` and `%h/miniconda3/envs/vinted_scraper/bin/python`. If your home, repo path, or env name differ, edit the `.service` files before copying.
+(`deploy/systemd/vinted-streamlit.service` exists but is **not** used — the dashboard is local.)
 
-## 7. ⚠️ Cutover — move, do not duplicate
+## 6. ⚠️ Cutover — move, don't duplicate
 
-Two hard conflicts if laptop and VPS run the same thing at once:
+- **One poller per bot token** — two `bot.py` on the same token → `Conflict: terminated by other getUpdates`.
+- **Two scoring loops with `--send-telegram`** → every deal sent **twice**.
 
-- **One poller per bot token.** Two `bot.py` on the same token → `Conflict: terminated by other getUpdates`. The bot silently breaks.
-- **Two scoring loops with `--send-telegram`** → every deal sent **twice** to your chat.
-
-So stop the laptop copies. On the laptop, kill the local scoring loop + bots + streamlit (the collector daemon stays running):
+So on the laptop, stop the local scoring loop before the VPS one sends. Leave the collector running:
 
 ```bash
-pkill -f 'apply_to_live_collector.py .*--run-loop'      # local scoring loop
-pkill -f 'telegram_implementation/bot.py'               # local bot
-pkill -f 'telegram_implementation/image_bot.py'         # local image bot
-pkill -f 'streamlit run app.py'                         # local dashboard
-# leave the collector (run-loop / live_bin_collector) ALONE
+pkill -f 'apply_to_live_collector.py .*--run-loop'
 ```
 
-Order: stop the **local bot first**, then `systemctl --user start vinted-bot` on the VPS, so the token is never polled by two processes.
+## 7. Laptop persistence (systemd --user)
 
-## 8. Reach the dashboard (SSH tunnel, no public port)
+Collector, dashboard, and the sync timer run as laptop user units so they survive reboot
+(`loginctl enable-linger ale`):
+
+| unit | what |
+| --- | --- |
+| `vinted-collector.service` | the scraper `run-loop` |
+| `vinted-dashboard.service` | Streamlit on `127.0.0.1:8501` (localhost only) |
+| `vinted-sync.timer` | pushes CSVs to the VPS every 10 min |
+
+Dashboard is bound to `127.0.0.1`. To reach it from another LAN device, change
+`--server.address` to `0.0.0.0` in `vinted-dashboard.service`.
+
+## 8. Verify
 
 ```bash
-ssh -N -L 8501:localhost:8501 vinted@YOUR_VPS_IP
-# then open http://localhost:8501 on the laptop
-```
-
-## 9. Verify
-
-```bash
-# VPS: all four active
-systemctl --user is-active vinted-scoring vinted-bot vinted-image-bot vinted-streamlit
-# VPS: scoring actually progressing
-journalctl --user -u vinted-scoring -n 30 --no-pager
-# VPS: memory headroom under load
-free -h
-# laptop: collector still local, bots/scoring/streamlit gone
-ps -ef | grep -E 'live_bin_collector|apply_to_live_collector|telegram_implementation|streamlit' | grep -v grep
-# laptop: sync ran
-tail /tmp/vinted_sync.log
+# VPS
+ssh vinted@VPS_IP 'for s in vinted-scoring vinted-bot vinted-image-bot; do echo "$s: $(systemctl --user is-active $s)"; done; free -h | sed -n 2p; df -h /'
+# laptop
+systemctl --user is-active vinted-collector vinted-dashboard vinted-sync.timer
 ```
 
 ## Rollback
 
-Stop VPS services, restart the local ones:
-
 ```bash
 # VPS
-systemctl --user disable --now vinted-scoring vinted-bot vinted-image-bot vinted-streamlit
-# laptop: restart local scoring/bots/streamlit as before
+systemctl --user disable --now vinted-scoring vinted-bot vinted-image-bot
+# laptop: restart the local scoring loop (e.g. re-enable a local scoring unit or run --run-loop)
 ```
