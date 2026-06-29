@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Shadow-score live collector items with the live-trained main_image_scores model.
+"""Score live collector items with the live-trained main_image_scores model.
 
 Pairs giant_basic_visual's live-trained visual model (see train_on_live.py,
 which fixes the offline/live base-rate prior shift) with the same
-tracked_items.csv that basic_5_giant_model/apply_to_live_collector.py scores,
-so precision/coverage can be compared after a few days. Shadow-only: no
-Telegram messages, no policy changes.
+tracked_items.csv that basic_5_giant_model/apply_to_live_collector.py scores.
+Pass --send-telegram to make this the live Telegram sender (replaces the
+basic5 union as the source of recommended-deal messages); otherwise it only
+scores and reports.
 """
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(ROOT / "scripts"))
+for _path in (ROOT, ROOT / "scripts"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from experiments.current.giant_basic_visual.features import (  # noqa: E402
     MAIN_IMAGE_FEATURES,
@@ -42,6 +45,12 @@ from experiments.current.giant_basic_visual.train_on_live import (  # noqa: E402
     SEARCH_ONEHOTS,
     VISUAL_FEATURES,
     load_visual_source_for_items,
+)
+from experiments.basic_5_giant_model.apply_to_live_collector import (  # noqa: E402
+    TELEGRAM_MIN_PRICE_EUR,
+    TELEGRAM_SENT_LOG,
+    item_identity,
+    send_candidates_to_telegram,
 )
 from experiments.deal_finder.modeling import score_with_model  # noqa: E402
 
@@ -207,6 +216,19 @@ def apply_model(df: pd.DataFrame, model: Any, threshold: float) -> pd.DataFrame:
     return out
 
 
+def build_telegram_candidates(scored: pd.DataFrame) -> pd.DataFrame:
+    """Items passing the visual model's threshold, with price > TELEGRAM_MIN_PRICE_EUR."""
+    price = pd.to_numeric(scored.get("Price"), errors="coerce")
+    eligible = (scored[PASS_COL] == True) & price.gt(TELEGRAM_MIN_PRICE_EUR)  # noqa: E712
+    candidates = scored[eligible].copy()
+    if candidates.empty:
+        return candidates
+    candidates["TelegramItemKey"] = candidates.apply(item_identity, axis=1)
+    candidates["TelegramPassedModels"] = APPROACH_KEY
+    candidates["GiantPassedModels"] = APPROACH_KEY
+    return candidates.sort_values(SCORE_COL, ascending=False).reset_index(drop=True)
+
+
 def coerce_bool(series: pd.Series) -> pd.Series:
     if pd.api.types.is_bool_dtype(series):
         return series.fillna(False).astype(bool)
@@ -294,6 +316,7 @@ def write_report(
     performance: pd.DataFrame,
     image_stats: dict[str, Any],
     threshold: float,
+    telegram_result: dict[str, Any] | None,
 ) -> None:
     def fmt(value: object, decimals: int = 3) -> str:
         try:
@@ -306,10 +329,18 @@ def write_report(
     focus_hours = [h for h in (24, 48, 72) if h in set(performance["hours"].dropna().astype(int))]
     overall = performance[performance["search_name"].eq(ALL_SEARCHES)]
 
+    is_live_send = bool(telegram_result and telegram_result.get("status") not in (None, "dry_run", "no_candidates") and not telegram_result.get("dry_run"))
+    policy_line = (
+        "This model is the live Telegram sender: passing items (price > "
+        f"{TELEGRAM_MIN_PRICE_EUR:.0f} EUR) are sent to the recommended-deals chat."
+        if is_live_send
+        else "Shadow/dry-run: no Telegram messages were sent."
+    )
+
     lines = [
         "# Giant Basic Visual - Live-Trained Model - Live Collector Scoring",
         "",
-        "Shadow-only run. No Telegram messages were sent and the basic5_giant Telegram policy was not changed.",
+        policy_line,
         "Model: live-trained `main_image_scores` (hist_gradient, seed 42), trained on basic5_giant's own "
         "live-scored history to fix the offline/live base-rate prior shift (see `train_on_live.py`, "
         "`data/experiments/giant_basic_visual/live_trained/live_trained_20260613_200922/results.json`).",
@@ -365,6 +396,16 @@ def write_report(
             f"{int(row['evaluated'])} | {int(row['sold'])} | {fmt(row['precision'])} | {fmt(row['coverage'])} |"
         )
 
+    if telegram_result is not None:
+        lines.extend(
+            [
+                "",
+                "## Telegram",
+                "",
+                f"- `{json.dumps(telegram_result, sort_keys=True)}`",
+            ]
+        )
+
     lines.extend(
         [
             "",
@@ -392,6 +433,7 @@ def write_outputs(
     skipped: pd.DataFrame,
     image_stats: dict[str, Any],
     threshold: float,
+    telegram_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out_dir = assert_experiment_path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -420,11 +462,12 @@ def write_outputs(
         performance=performance,
         image_stats=image_stats,
         threshold=threshold,
+        telegram_result=telegram_result,
     )
 
     manifest_extra = {
-        "mode": "shadow_only",
-        "telegram_policy_changed": False,
+        "mode": "live_send" if (telegram_result and not telegram_result.get("dry_run")) else "shadow_or_dry_run",
+        "telegram": telegram_result,
         "live_run_dir": str(live_run_dir),
         "model": {
             "feature_mode": "main_image_scores",
@@ -470,6 +513,22 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     total_passed = int((scored[PASS_COL] == True).sum())
     print(f"[apply_live_trained] {APPROACH_KEY}: {total_passed} passed threshold {threshold:.4f}", flush=True)
 
+    telegram_result: dict[str, Any] | None = None
+    if args.send_telegram or args.telegram_dry_run:
+        candidates = build_telegram_candidates(scored)
+        print(
+            f"[apply_live_trained] {len(candidates)} items passed visual model + price>{TELEGRAM_MIN_PRICE_EUR:.2f}€",
+            flush=True,
+        )
+        telegram_result = send_candidates_to_telegram(
+            candidates,
+            source_run=out_dir.name,
+            dry_run=bool(args.telegram_dry_run),
+            limit=args.telegram_limit,
+            sent_log_path=TELEGRAM_SENT_LOG,
+        )
+        print(f"[apply_live_trained] telegram: {json.dumps(telegram_result, ensure_ascii=False)}", flush=True)
+
     manifest = write_outputs(
         out_dir,
         live_run_dir=live_run_dir,
@@ -477,6 +536,7 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
         skipped=skipped,
         image_stats=image_stats,
         threshold=threshold,
+        telegram_result=telegram_result,
     )
     print(json.dumps(manifest, indent=2), flush=True)
     return manifest
@@ -484,12 +544,15 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Shadow-score live collector items with the live-trained giant_basic_visual main_image_scores model."
+        description="Score live collector items with the live-trained giant_basic_visual main_image_scores model."
     )
     parser.add_argument("--live-run-dir", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--run-loop", action="store_true", help="Keep rescoring the live collector on a fixed cadence.")
     parser.add_argument("--sleep-seconds", type=float, default=7200.0, help="Sleep between run-loop scoring passes.")
+    parser.add_argument("--send-telegram", action="store_true", help="Send newly passing items to the recommended deals Telegram chat.")
+    parser.add_argument("--telegram-dry-run", action="store_true", help="Count Telegram candidates without sending messages.")
+    parser.add_argument("--telegram-limit", type=int, default=None, help="Optional max number of new Telegram recommendations to send.")
     args = parser.parse_args()
 
     ensure_experiment_dirs()
