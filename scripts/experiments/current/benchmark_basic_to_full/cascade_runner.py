@@ -66,7 +66,12 @@ DEFAULT_STUDENT_BINARY_TARGET = 10
 STUDENT_OBJECTIVES = ("recall", "precision", "binary")
 STATE_FILE = "tracked_items.csv"
 EVENTS_FILE = "events.jsonl"
-WINDOW_HOURS = [*range(1, 25), *range(27, 49, 3), *range(60, 169, 12)]
+WINDOW_HOURS = [
+    *range(1, 25),
+    *range(27, 49, 3),
+    *range(60, 169, 12),
+    336, 504, 672, 840, 1008,  # weekly long-tail: 14d, 21d, 28d, 35d, 42d
+]
 STATE_OBJECT_COLUMNS = [
     "tracking_key",
     "item_id",
@@ -118,7 +123,9 @@ def current_recheck_interval_hours(first_seen_at: object, now: pd.Timestamp | No
         return 2.0
     if age_hours < 48.0:
         return 6.0
-    return 12.0
+    if age_hours < 168.0:
+        return 12.0
+    return 168.0  # once per week for items older than 7 days
 
 
 def ensure_outcome_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -633,15 +640,17 @@ def due_recheck_mask(tracked: pd.DataFrame, now: pd.Timestamp, *, max_age_hours:
     first = pd.to_datetime(tracked.get("first_stage1_pass_at"), errors="coerce", utc=True)
     last = pd.to_datetime(tracked.get("last_rechecked_at"), errors="coerce", utc=True)
     sold = pd.to_datetime(tracked.get("sold_at"), errors="coerce", utc=True)
+    stopped = tracked.get("recheck_stop_reason", pd.Series(pd.NA, index=tracked.index))
     age = (now - first).dt.total_seconds() / 3600.0
     interval = first.map(lambda ts: current_recheck_interval_hours(ts, now=now))
-    age_limit = float(max(windows))
+    age_limit = float(max_age_hours) if max_age_hours is not None else float(max(windows))
     within_interval_horizon = age.le(age_limit)
     due_by_interval = last.isna() | ((now - last).dt.total_seconds() / 3600.0 >= interval)
     due_by_window = pd.Series(False, index=tracked.index)
     for hours in windows:
         due_by_window |= first.notna() & tracked.get(evaluated_col(hours), pd.Series(pd.NA, index=tracked.index)).isna() & age.ge(float(hours))
-    return first.notna() & sold.isna() & ((within_interval_horizon & due_by_interval) | due_by_window)
+    not_stopped = stopped.isna() | (stopped.astype(str).str.strip() == "")
+    return first.notna() & sold.isna() & not_stopped & ((within_interval_horizon & due_by_interval) | due_by_window)
 
 
 def append_rows(path: Path, rows: pd.DataFrame) -> None:

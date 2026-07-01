@@ -81,6 +81,7 @@ COLLECTOR_COLUMNS = {
     "collector_full_scrape_attempted_at": pd.NA,
     "collector_full_scrape_finished_at": pd.NA,
     "collector_visual_features_path": pd.NA,
+    "recheck_stop_reason": pd.NA,
 }
 OBJECT_COLUMNS = (
     "cohort",
@@ -118,6 +119,7 @@ STATE_OWNED_COLUMNS = {
     "last_rechecked_at",
     "last_recheck_status",
     "sold_at",
+    "recheck_stop_reason",
     "FullScrapeStatus",
     "QualityMethodStatus",
     "collector_full_scrape_attempted_at",
@@ -957,6 +959,9 @@ def run_recheck_due(args: argparse.Namespace, *, out_dir: Path) -> dict[str, Any
         tracked.at[idx, "last_recheck_status"] = status
         if str(status or "").strip().casefold() == "sold" and pd.isna(tracked.at[idx, "sold_at"]):
             tracked.at[idx, "sold_at"] = rechecked_at
+        if str(status or "").strip() == "FetchFailed" and pd.isna(tracked.at[idx, "recheck_stop_reason"]):
+            tracked.at[idx, "recheck_stop_reason"] = f"FetchFailed:{rechecked_at}"
+            print(f"[recheck] stopping item {row.get('item_id', row.get('Dataid', idx))}: FetchFailed at {rechecked_at}", flush=True)
         first_ts = pd.to_datetime(row.get("first_stage1_pass_at"), errors="coerce", utc=True)
         recheck_ts = pd.to_datetime(rechecked_at, errors="coerce", utc=True)
         cascade.update_outcome_windows(tracked, idx, status=status, first_ts=first_ts, recheck_ts=recheck_ts)
