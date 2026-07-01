@@ -54,7 +54,7 @@ from experiments.basic_5_giant_model.apply_to_live_collector import (  # noqa: E
 )
 from experiments.deal_finder.modeling import score_with_model  # noqa: E402
 
-MODEL_DIR = EXPERIMENT_ROOT / "live_trained" / "live_trained_20260613_200922"
+MODEL_DIR = EXPERIMENT_ROOT / "live_trained" / "live_trained_20260629_202123"
 MODEL_PATH = MODEL_DIR / "main_image_scores_hist_gradient_seed42.pkl"
 RESULTS_PATH = MODEL_DIR / "results.json"
 
@@ -144,6 +144,16 @@ def add_main_image_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
     for _, row in df.iterrows():
         path, reason = resolve_main_image_path(row.get("LocalPrimaryImagePath"))
         if reason:
+            # File missing but features may still be in the cache (e.g. file deleted after
+            # a previous scoring pass computed and cached them). Try cache before giving up.
+            if reason == "main_image_not_found" and path is not None:
+                cache_key = str(path.resolve())
+                cached = cache_map.get(cache_key)
+                if cached is not None:
+                    cache_hits += 1
+                    kept_rows.append(row)
+                    kept_features.append(cached)
+                    continue
             skipped.append(_skip_row(row, reason))
             continue
         assert path is not None
@@ -206,13 +216,27 @@ def prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def apply_model(df: pd.DataFrame, model: Any, threshold: float) -> pd.DataFrame:
+def load_per_search_thresholds(model_dir: Path) -> dict[str, float]:
+    """Load per-search thresholds from calibration file if available."""
+    path = model_dir / "per_search_thresholds.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {search: float(entry["threshold"]) for search, entry in data.get("thresholds", {}).items()}
+
+
+def apply_model(df: pd.DataFrame, model: Any, threshold: float, per_search_thresholds: dict[str, float] | None = None) -> pd.DataFrame:
     out = df.copy()
     feature_frame = out[VISUAL_FEATURES].astype(float)
     probs = np.clip(np.asarray(score_with_model(model, feature_frame), dtype=float), 0.0, 1.0)
     out[SCORE_COL] = probs
-    out[THRESHOLD_COL] = threshold
-    out[PASS_COL] = out[SCORE_COL] >= threshold
+    if per_search_thresholds:
+        search_thresh = out["SearchName"].map(lambda s: per_search_thresholds.get(str(s), threshold))
+        out[THRESHOLD_COL] = search_thresh
+        out[PASS_COL] = out[SCORE_COL] >= search_thresh
+    else:
+        out[THRESHOLD_COL] = threshold
+        out[PASS_COL] = out[SCORE_COL] >= threshold
     return out
 
 
@@ -495,8 +519,20 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     live_run_dir = Path(args.live_run_dir)
     out_dir = Path(args.out_dir) if args.out_dir else EXPERIMENT_ROOT / "live_scoring" / run_id("live_scoring")
 
-    threshold = load_threshold()
-    model = joblib.load(MODEL_PATH)
+    model_dir = Path(args.model_dir) if getattr(args, "model_dir", None) else MODEL_DIR
+    results_path = model_dir / "results.json"
+    model_path = model_dir / "main_image_scores_hist_gradient_seed42.pkl"
+
+    if model_dir == MODEL_DIR:
+        threshold = load_threshold()
+    else:
+        threshold = float(json.loads(results_path.read_text(encoding="utf-8"))["results"]["main_image_scores"]["threshold"])
+    per_search_thresholds = load_per_search_thresholds(model_dir)
+    if per_search_thresholds:
+        print(f"[apply_live_trained] using per-search thresholds for {len(per_search_thresholds)} searches (global fallback={threshold:.4f})", flush=True)
+    else:
+        print(f"[apply_live_trained] using global threshold={threshold:.4f}", flush=True)
+    model = joblib.load(model_path)
 
     print(f"[apply_live_trained] loading tracked items from {live_run_dir}", flush=True)
     tracked = load_live_tracked(live_run_dir)
@@ -509,7 +545,7 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     print(f"[apply_live_trained] image cache: {json.dumps(image_stats, sort_keys=True)}", flush=True)
 
     prepared = prepare_feature_frame(kept)
-    scored = apply_model(prepared, model, threshold)
+    scored = apply_model(prepared, model, threshold, per_search_thresholds=per_search_thresholds or None)
     total_passed = int((scored[PASS_COL] == True).sum())
     print(f"[apply_live_trained] {APPROACH_KEY}: {total_passed} passed threshold {threshold:.4f}", flush=True)
 
@@ -553,6 +589,7 @@ def main() -> int:
     parser.add_argument("--send-telegram", action="store_true", help="Send newly passing items to the recommended deals Telegram chat.")
     parser.add_argument("--telegram-dry-run", action="store_true", help="Count Telegram candidates without sending messages.")
     parser.add_argument("--telegram-limit", type=int, default=None, help="Optional max number of new Telegram recommendations to send.")
+    parser.add_argument("--model-dir", type=str, default=None, help="Override model directory (for comparison runs without swapping production).")
     args = parser.parse_args()
 
     ensure_experiment_dirs()

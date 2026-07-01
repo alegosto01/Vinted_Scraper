@@ -37,12 +37,21 @@ from experiments.current.giant_basic_visual.paths import (
 )
 from experiments.deal_finder.modeling import choose_threshold, threshold_metrics
 
-LIVE_SCORED = (
-    ROOT
-    / "experiments/current/basic_5_giant_model/data/live_scoring"
-    / "live_scoring_20260613_152451"
-    / "live_scored_items.csv"
-)
+LIVE_SCORING_DIR = ROOT / "experiments/current/basic_5_giant_model/data/live_scoring"
+
+
+def latest_live_scored() -> Path:
+    """Most recent basic5 live-scoring snapshot (full rescoring of tracked_items.csv at that point)."""
+    runs = sorted(
+        (p for p in LIVE_SCORING_DIR.glob("live_scoring_*") if (p / "live_scored_items.csv").exists()),
+        key=lambda p: p.name,
+    )
+    if not runs:
+        raise FileNotFoundError(f"No live_scoring_* runs with live_scored_items.csv found under {LIVE_SCORING_DIR}")
+    return runs[-1] / "live_scored_items.csv"
+
+
+LIVE_SCORED = latest_live_scored()
 
 SEED = 42
 LABEL_COL = "sold_within_24h"
@@ -56,6 +65,8 @@ SEARCH_ONEHOTS = [
     "search__prada",
     "search__ps4",
     "search__telefoni",
+    "search__donna_accessori_gioielli",
+    "search__hobby_collezionismo",
 ]
 KNOWN_SEARCHES = {col.replace("search__", "") for col in SEARCH_ONEHOTS}
 
@@ -143,56 +154,79 @@ def main() -> None:
     df = build_dataset()
 
     df = df[df["SearchName"].isin(KNOWN_SEARCHES)].copy()
-    print(f"\nRows in 7 known searches: {len(df)}")
+    print(f"\nRows in {len(KNOWN_SEARCHES)} known searches: {len(df)}")
 
     has_label = df[EVAL_COL].notna() & df[LABEL_COL].notna()
     df = df[has_label].copy()
     df[LABEL_COL] = df[LABEL_COL].astype(int)
     print(f"Rows with {LABEL_COL} evaluated: {len(df)}, base rate={df[LABEL_COL].mean():.3f}")
 
-    has_visual = df[VISUAL_FEATURES].notna().all(axis=1)
+    # Dino columns are excluded from this hard gate: HistGradientBoostingClassifier tolerates
+    # NaN natively, and DinoEmbeddingNorm/DinoOutlierScore can be legitimately all-NaN for a
+    # while after a dino pipeline fix (no retroactive backfill of historical visual_features
+    # CSVs) without that blocking training on the rest of the feature set.
+    required_features = [col for col in VISUAL_FEATURES if col not in ("DinoEmbeddingNorm", "DinoOutlierScore")]
+    has_visual = df[required_features].notna().all(axis=1)
     df = df[has_visual].copy()
     print(f"Rows with full feature set (incl. visual scores): {len(df)}, base rate={df[LABEL_COL].mean():.3f}")
+    print(f"  rows with non-null DinoEmbeddingNorm: {int(df['DinoEmbeddingNorm'].notna().sum())}")
 
     print("\nPer-search counts / base rate:")
     for search, g in df.groupby("SearchName"):
         print(f"  {search}: n={len(g)} base_rate={g[LABEL_COL].mean():.3f}")
 
-    df["_strata"] = df["SearchName"] + "__" + df[LABEL_COL].astype(str)
-
-    train_df, rest_df = train_test_split(df, test_size=0.4, random_state=SEED, stratify=df["_strata"])
-    val_df, test_df = train_test_split(rest_df, test_size=0.5, random_state=SEED, stratify=rest_df["_strata"])
+    # Stratify by label only: joint search x label strata are too fine at this row count
+    # (several searches currently have 0-1 positives in this snapshot), which makes
+    # sklearn's stratified split reject classes with under 2 members.
+    train_df, rest_df = train_test_split(df, test_size=0.4, random_state=SEED, stratify=df[LABEL_COL])
+    val_df, test_df = train_test_split(rest_df, test_size=0.5, random_state=SEED, stratify=rest_df[LABEL_COL])
     print(f"\nSplit: train={len(train_df)} val={len(val_df)} test={len(test_df)}")
 
     out_dir = EXPERIMENT_ROOT / "live_trained" / run_id("live_trained")
     ensure_experiment_dirs()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Small grid: enough to check the fixed defaults aren't badly off, not wide enough to
+    # chase noise on the ~30 positives this live-trained set currently has.
+    HPARAM_GRID = [
+        {"learning_rate": 0.06, "max_leaf_nodes": 15, "min_samples_leaf": 12, "l2_regularization": 0.1},
+        {"learning_rate": 0.04, "max_leaf_nodes": 15, "min_samples_leaf": 12, "l2_regularization": 0.1},
+        {"learning_rate": 0.06, "max_leaf_nodes": 9, "min_samples_leaf": 12, "l2_regularization": 0.1},
+        {"learning_rate": 0.06, "max_leaf_nodes": 15, "min_samples_leaf": 20, "l2_regularization": 0.1},
+        {"learning_rate": 0.06, "max_leaf_nodes": 15, "min_samples_leaf": 12, "l2_regularization": 0.3},
+        {"learning_rate": 0.1, "max_leaf_nodes": 15, "min_samples_leaf": 12, "l2_regularization": 0.1},
+    ]
+
     results = {}
     for mode, feature_cols in [("basic_5_control", BASIC_FEATURES), ("main_image_scores", VISUAL_FEATURES)]:
         print(f"\n=== {mode} ({len(feature_cols)} features) ===")
-        model = Pipeline(
-            [
-                ("imputer", SimpleImputer(strategy="median")),
-                (
-                    "model",
-                    HistGradientBoostingClassifier(
-                        max_iter=180,
-                        learning_rate=0.06,
-                        max_leaf_nodes=15,
-                        min_samples_leaf=12,
-                        l2_regularization=0.1,
-                        random_state=SEED,
-                    ),
-                ),
-            ]
-        )
         X_train = train_df[feature_cols].astype(float)
         y_train = train_df[LABEL_COL].to_numpy()
-        model.fit(X_train, y_train)
-
         X_val = val_df[feature_cols].astype(float)
         y_val = val_df[LABEL_COL].to_numpy()
+
+        tried = []
+        best_model = None
+        best_eval = None
+        best_params = None
+        for params in HPARAM_GRID:
+            candidate = Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("model", HistGradientBoostingClassifier(max_iter=180, random_state=SEED, **params)),
+                ]
+            )
+            candidate.fit(X_train, y_train)
+            scores = candidate.predict_proba(X_val)[:, 1]
+            pr_auc = average_precision_score(y_val, scores)
+            tried.append({**params, "val_pr_auc": float(pr_auc)})
+            if best_eval is None or pr_auc > best_eval["pr_auc"]:
+                best_model = candidate
+                best_eval = {"scores": scores, "pr_auc": pr_auc}
+                best_params = params
+        print(f"  hyperparam sweep ({len(HPARAM_GRID)} configs), best val PR-AUC={best_eval['pr_auc']:.3f}: {best_params}")
+
+        model = best_model
         val_eval = evaluate_split(model, X_val, y_val, "val")
 
         threshold_info = choose_threshold(y_val, val_eval["scores"], min_precision=0.40, min_count=10)
@@ -208,12 +242,26 @@ def main() -> None:
               f"precision={test_at_threshold['precision']:.3f} "
               f"positives={test_at_threshold['positive_count']}")
 
+        per_search_test = {}
+        test_scores_series = pd.Series(test_eval["scores"], index=test_df.index)
+        for search in sorted(KNOWN_SEARCHES):
+            mask = (test_df["SearchName"] == search).to_numpy()
+            if not mask.any():
+                per_search_test[search] = {"count": 0, "precision": np.nan, "positive_count": 0, "n_test": 0}
+                continue
+            per_search_test[search] = {
+                **threshold_metrics(y_test[mask], test_scores_series.to_numpy()[mask], threshold),
+                "n_test": int(mask.sum()),
+            }
+
         model_path = out_dir / f"{mode}_hist_gradient_seed{SEED}.pkl"
         joblib.dump(model, model_path)
 
         results[mode] = {
             "n_features": len(feature_cols),
             "features": feature_cols,
+            "hyperparams": best_params,
+            "hyperparam_sweep": tried,
             "val_auc": val_eval["auc"],
             "val_pr_auc": val_eval["pr_auc"],
             "test_auc": test_eval["auc"],
@@ -222,6 +270,7 @@ def main() -> None:
             "threshold_val_precision": threshold_info["precision"],
             "threshold_val_count": threshold_info["count"],
             "test_at_threshold": test_at_threshold,
+            "per_search_test": per_search_test,
             "model_path": str(model_path),
         }
 
