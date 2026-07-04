@@ -47,6 +47,35 @@ def extract_primary_image_url(image_value: object) -> str | None:
     return None
 
 
+def build_seller_review_line(item: Mapping[str, object]) -> str | None:
+    """Seller reputation line: '⭐ 4.4 · 158 reviews', or 'No reviews yet' when none.
+
+    Stars == -1 (and ReviewsCount == 0) is the scraper's sentinel for an unrated
+    seller. Missing/unparseable values omit the line entirely.
+    """
+
+    def parse_num(value: object) -> float | None:
+        try:
+            if value in (None, ""):
+                return None
+            num = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        if num != num:  # NaN
+            return None
+        return num
+
+    reviews = parse_num(item.get("ReviewsCount"))
+    stars = parse_num(item.get("Stars"))
+    if reviews is not None and reviews > 0 and stars is not None and stars >= 0:
+        count = int(reviews)
+        noun = "review" if count == 1 else "reviews"
+        return f"⭐ {stars:.1f} · {count} {noun}"
+    if (reviews is not None and reviews == 0) or (stars is not None and stars < 0):
+        return "⭐ No reviews yet"
+    return None
+
+
 def build_caption(item: Mapping[str, object]) -> str:
     title = (str(item.get("Title") or "")).strip()
     price_value = item.get("Price")
@@ -68,6 +97,9 @@ def build_caption(item: Mapping[str, object]) -> str:
     info_bits = [esc(bit) for bit in (price or None, size, brand, cond) if bit]
     if info_bits:
         lines.append(" • ".join(info_bits))
+    seller_line = build_seller_review_line(item)
+    if seller_line:
+        lines.append(seller_line)
     if reason:
         lines.append(esc(reason) or "")
     if url:

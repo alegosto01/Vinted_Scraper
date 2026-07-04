@@ -85,6 +85,35 @@ class TelegramImplementationTests(unittest.TestCase):
 
         self.assertIn("Giant model pass", caption)
 
+    def test_caption_includes_seller_reviews_when_rated(self):
+        item = {
+            "Title": "Prada bag",
+            "Price": 50,
+            "Link": "https://example.com/item/1",
+            "ReviewsCount": 158.0,
+            "Stars": 4.4,
+        }
+
+        caption = build_caption(item)
+
+        self.assertIn("4.4", caption)
+        self.assertIn("158 reviews", caption)
+
+    def test_caption_singular_review_and_unrated_and_missing(self):
+        singular = build_caption(
+            {"Title": "x", "Link": "l", "ReviewsCount": 1.0, "Stars": 5.0}
+        )
+        self.assertIn("1 review", singular)
+        self.assertNotIn("1 reviews", singular)
+
+        unrated = build_caption(
+            {"Title": "x", "Link": "l", "ReviewsCount": 0.0, "Stars": -1.0}
+        )
+        self.assertIn("No reviews yet", unrated)
+
+        missing = build_caption({"Title": "x", "Link": "l"})
+        self.assertNotIn("⭐", missing)
+
     @mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False)
     @mock.patch("telegram_implementation.description_service.load_example_corpus")
     @mock.patch("telegram_implementation.description_service.build_description_payload")
