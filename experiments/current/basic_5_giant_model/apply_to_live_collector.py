@@ -56,12 +56,7 @@ MODEL_SEARCHES = (
 )
 
 BASIC5_APPROACH_NAMES = (
-    "logistic_v1_baseline",
-    "logistic_snapshot_v2",
-    "sgd_text_numeric_v1",
-    "linear_svm_calibrated_v1",
     "numeric_tree_v1",
-    "rules_price_v1",
     "random_forest_basic_v1",
     "hist_gradient_basic_numeric_v1",
     "xgboost_basic_v1",
