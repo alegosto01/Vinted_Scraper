@@ -11,7 +11,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from experiments.teacher_student_basic_filter.train_student import choose_threshold_for_teacher_recall
+from experiments.old.teacher_student_basic_filter.train_student import choose_threshold_for_teacher_recall
 
 
 class TeacherStudentThresholdTests(unittest.TestCase):

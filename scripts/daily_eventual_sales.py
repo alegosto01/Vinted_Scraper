@@ -602,7 +602,7 @@ def process_one_background_eventual_sale(search) -> bool:
 
         # ── Experiment tracker ──────────────────────────────────────────────
         try:
-            from experiments.tracking.db import init_db, log_eventual_sale_check
+            from experiments.old.tracking.db import init_db, log_eventual_sale_check
             init_db()
             log_eventual_sale_check({
                 "search_name": search.folder,
@@ -745,7 +745,7 @@ def refresh_daily_eventual_sales(programmed_searches, today_iso: str | None = No
 
             # ── Experiment tracker ──────────────────────────────────────────
             try:
-                from experiments.tracking.db import init_db, log_eventual_sale_check
+                from experiments.old.tracking.db import init_db, log_eventual_sale_check
                 init_db()
                 log_eventual_sale_check({
                     "search_name": search.folder,

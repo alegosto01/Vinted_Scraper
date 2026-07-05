@@ -17,26 +17,26 @@ Alternative `extreme_score` task wired up first for `score_low` vs `score_high`,
 - Keep only `sold_status` task.
 - Ignore `extreme_score`.
 - Exclude `Borse_Griffate` and `Scarpe_Griffate` from user-facing summaries.
-- Baseline for old approach: deal-finder offline sweep at [data/experiments/deal_finder/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/data/experiments/deal_finder/offline_runs/sweep_20260510_222252).
+- Baseline for old approach: deal-finder offline sweep at [experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252).
 
 ## Code Layout
 
-New experiment package at [scripts/experiments/current/full_scrape_model](/home/ale/Desktop/vinted/Vinted_New_Version/scripts/experiments/current/full_scrape_model).
+New experiment package at [experiments/old/full_scrape_model](/home/ale/Desktop/vinted/Vinted_New_Version/experiments/old/full_scrape_model).
 
-- [scripts/experiments/current/full_scrape_model/dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/dataset.py)
+- [experiments/old/full_scrape_model/dataset.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/dataset.py)
   Build per-search datasets from merged full-scrape CSV exports.
-- [scripts/experiments/current/full_scrape_model/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/model_sweep.py)
+- [experiments/old/full_scrape_model/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/model_sweep.py)
   Reuse deal-finder sweep machinery and model defs, write outputs to full-scrape-model root.
-- [scripts/experiments/current/full_scrape_model/paths.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/paths.py)
+- [experiments/old/full_scrape_model/paths.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/paths.py)
   Define experiment root, model output root, helper manifest/json writers.
-- [scripts/experiments/current/full_scrape_model/build_dataset.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/build_dataset.py)
+- [experiments/old/full_scrape_model/build_dataset.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/build_dataset.py)
   Thin CLI wrap of `dataset.py`.
-- [scripts/experiments/current/full_scrape_model/train_offline.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/full_scrape_model/train_offline.py)
+- [experiments/old/full_scrape_model/train_offline.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/train_offline.py)
   Thin CLI wrap of `model_sweep.py`.
 
 ## Reused Logic
 
-Sweep reuse deal-finder approaches from [scripts/experiments/current/deal_finder/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/scripts/experiments/current/deal_finder/model_sweep.py).
+Sweep reuse deal-finder approaches from [experiments/old/deal_finder/model_sweep.py](/home/ale/Desktop/Vinted_New_Version/experiments/old/deal_finder/model_sweep.py).
 
 Current approach set:
 
@@ -106,17 +106,17 @@ User say exclude from reports:
 
 Active full-scrape-model sold-status run:
 
-- [data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018)
+- [experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018)
 
 Key files:
 
-- [manifest.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/manifest.json)
-- [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/dataset_summary.json)
-- [metrics_long.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/metrics_long.csv)
-- [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv)
-- [best_by_approach.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/best_by_approach.csv)
-- [promotion_candidates.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/promotion_candidates.json)
-- [sweep_report.md](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/sweep_report.md)
+- [manifest.json](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/manifest.json)
+- [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/dataset_summary.json)
+- [metrics_long.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/metrics_long.csv)
+- [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv)
+- [best_by_approach.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/best_by_approach.csv)
+- [promotion_candidates.json](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/promotion_candidates.json)
+- [sweep_report.md](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/sweep_report.md)
 
 Run summary:
 
@@ -126,13 +126,13 @@ Run summary:
 - promotion candidates: `25`
 - seed set: `42`
 
-Earlier `extreme_score` runs removed, so only sold-status runs remain under [data/experiments/full_scrape_model/offline_runs](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs).
+Earlier `extreme_score` runs removed, so only sold-status runs remain under [experiments/old/full_scrape_model/data/offline_runs](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs).
 
 ## Feature Modality Comparison
 
 Feature-modality run:
 
-- [data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual)
+- [experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual)
 
 Train same sold-status families in three modes:
 
@@ -142,10 +142,10 @@ Train same sold-status families in three modes:
 
 Main files:
 
-- [feature_modality_report.md](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/feature_modality_report.md)
-- [metrics_long.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/metrics_long.csv)
-- [modality_comparison_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/modality_comparison_by_search.csv)
-- [approach_mode_lift.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/approach_mode_lift.csv)
+- [feature_modality_report.md](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/feature_modality_report.md)
+- [metrics_long.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/metrics_long.csv)
+- [modality_comparison_by_search.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/modality_comparison_by_search.csv)
+- [approach_mode_lift.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/approach_mode_lift.csv)
 
 Headline result:
 
@@ -156,7 +156,7 @@ Headline result:
 
 ## Current Best Models Per Search
 
-From [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv), exclude `Borse_Griffate`:
+From [best_by_search.csv](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/best_by_search.csv), exclude `Borse_Griffate`:
 
 - `griffati_donna_all`: `numeric_tree_v1`
 - `griffati_uomo_all`: `linear_svm_calibrated_v1`
@@ -178,7 +178,7 @@ Headline metrics for winners:
 
 Baseline:
 
-- [data/experiments/deal_finder/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/data/experiments/deal_finder/offline_runs/sweep_20260510_222252)
+- [experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252](/home/ale/Desktop/Vinted_New_Version/experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252)
 
 Result summary:
 
@@ -201,7 +201,7 @@ Old deal-finder sweep did not use less labeled data. In compared searches it had
 
 ## Dataset Sizes Used In The Full-Scrape Sold-Status Run
 
-From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/data/experiments/full_scrape_model/offline_runs/sold_status_sweep_20260515_101018/dataset_summary.json):
+From [dataset_summary.json](/home/ale/Desktop/Vinted_New_Version/experiments/old/full_scrape_model/data/offline_runs/sold_status_sweep_20260515_101018/dataset_summary.json):
 
 - `Borse_Griffate`: eligible `17`, positives `17`
 - `griffati_donna_all`: eligible `4810`, positives `1804`
@@ -220,7 +220,7 @@ Readable SHAP-style analysis added for best `basic_5` and `full_scrape_plus_visu
 Latest run:
 
 ```text
-data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/shap_analysis/no_dino_20260515_232153/
+experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/shap_analysis/no_dino_20260515_232153/
 ```
 
 Main files:
@@ -244,7 +244,7 @@ Early signal:
 Latest ablation run:
 
 ```text
-data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/ablation_analysis/no_search_count_page_20260515_233324/
+experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/ablation_analysis/no_search_count_page_20260515_233324/
 ```
 
 Main files:
@@ -271,13 +271,13 @@ Reason: historical value entangled with dataset origin — `sold_backfill_stage`
 To reproduce old behaviour for comparison:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/compare_feature_modalities.py --all-searches --include-upload-date
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/compare_feature_modalities.py --all-searches --include-upload-date
 ```
 
 For recommended clean run (default):
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/compare_feature_modalities.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/compare_feature_modalities.py --all-searches
 ```
 
 Future path: once live paper-trading collect `FirstSeenAt` timestamp per item, compute upload age at first observation time (`UploadAgeDaysAtObservation`) and add back as clean live feature.
@@ -287,37 +287,37 @@ Future path: once live paper-trading collect `FirstSeenAt` timestamp per item, c
 ### Build Datasets Only
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/build_dataset.py --task sold_status --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/build_dataset.py --task sold_status --all-searches
 ```
 
 ### Run The Sold-Status Sweep For All Searches
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/model_sweep.py --task sold_status --all-searches
 ```
 
 ### Run A Single Search
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --search gucci
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/model_sweep.py --task sold_status --search gucci
 ```
 
 ### Restrict To Specific Approaches
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --search gucci --approach numeric_tree_v1 --approach linear_svm_calibrated_v1
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/model_sweep.py --task sold_status --search gucci --approach numeric_tree_v1 --approach linear_svm_calibrated_v1
 ```
 
 ### Robustness Mode
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/model_sweep.py --task sold_status --all-searches --robustness
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/model_sweep.py --task sold_status --all-searches --robustness
 ```
 
 ### Run Readable SHAP Analysis
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/shap_analysis.py --max-background-rows 120 --max-explain-rows 180
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/shap_analysis.py --max-background-rows 120 --max-explain-rows 180
 ```
 
 By default explain `basic_5` and `full_scrape_plus_visual` models, skip raw DINO embedding dims in output.
@@ -325,7 +325,7 @@ By default explain `basic_5` and `full_scrape_plus_visual` models, skip raw DINO
 ### Run SearchCount/Page Ablation And Upload-Date Analysis
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/full_scrape_model/ablation_upload_date_analysis.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/full_scrape_model/ablation_upload_date_analysis.py --all-searches
 ```
 
 ## Known Constraints

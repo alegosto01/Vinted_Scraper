@@ -12,7 +12,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.deal_finder import (
+from experiments.old.deal_finder import (
     dataset,
     model_sweep,
     modeling,
@@ -20,8 +20,8 @@ from experiments.deal_finder import (
     paper_trade_six_search_strict_hourly,
     paper_trading,
 )
-from experiments.basic_5_voting import run as basic_5_voting
-from experiments.basic_5_stacking import run as basic_5_stacking
+from experiments.old.basic_5_voting import run as basic_5_voting
+from experiments.old.basic_5_stacking import run as basic_5_stacking
 
 
 class DealFinderDatasetTests(unittest.TestCase):
@@ -323,8 +323,8 @@ class DealFinderPaperTradingTests(unittest.TestCase):
                     }
                 ]
             ).to_csv(live / "tracked_items.csv", index=False)
-            with patch("experiments.deal_finder.paper_trading.LIVE_RUNS_DIR", root / "live_runs"), patch(
-                "experiments.deal_finder.paths.EXPERIMENT_ROOT", root
+            with patch("experiments.old.deal_finder.paper_trading.LIVE_RUNS_DIR", root / "live_runs"), patch(
+                "experiments.old.deal_finder.paths.EXPERIMENT_ROOT", root
             ):
                 result = paper_trading.recheck_due(live_run=live, dry_run=True)
             self.assertEqual(result["due_count"], 1)
@@ -355,8 +355,8 @@ class DealFinderPaperTradingTests(unittest.TestCase):
                     },
                 ]
             ).to_csv(live / "tracked_items.csv", index=False)
-            with patch("experiments.deal_finder.paper_trading.LIVE_RUNS_DIR", root / "live_runs"), patch(
-                "experiments.deal_finder.paths.EXPERIMENT_ROOT", root
+            with patch("experiments.old.deal_finder.paper_trading.LIVE_RUNS_DIR", root / "live_runs"), patch(
+                "experiments.old.deal_finder.paths.EXPERIMENT_ROOT", root
             ):
                 result = paper_trading.recheck_due(live_run=live, due_hours=1, above_threshold_only=True, dry_run=True)
             self.assertEqual(result["due_count"], 1)
@@ -434,7 +434,7 @@ class DealFinderModelBenchmarkTests(unittest.TestCase):
                     }
                 ]
             ).to_csv(live / paper_trade_model_benchmark.BENCHMARK_TRACKED_FILE, index=False)
-            with patch("experiments.deal_finder.paths.EXPERIMENT_ROOT", root):
+            with patch("experiments.old.deal_finder.paths.EXPERIMENT_ROOT", root):
                 result = paper_trade_model_benchmark.recheck_benchmark_due(out_dir=live, dry_run=True)
             self.assertEqual(result["due_rows"], 0)
 

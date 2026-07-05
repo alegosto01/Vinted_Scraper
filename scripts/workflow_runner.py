@@ -98,7 +98,7 @@ def run_batch_command(args: argparse.Namespace) -> int:
         price_buffer_size=args.price_buffer_size,
         make_plots=args.make_plots,
     )
-    from experiments.clustering_approach.vinted_pipeline_batch import run as run_batch
+    from experiments.old.clustering_approach.vinted_pipeline_batch import run as run_batch
     run_batch(ns)
     return 0
 
@@ -129,7 +129,7 @@ def run_incremental_command(args: argparse.Namespace) -> int:
     )
     if bool(ns.new_items) == bool(ns.growing_csv):
         raise SystemExit('Provide exactly one of --new_items or --growing_csv for incremental')
-    from experiments.clustering_approach.vinted_pipeline_incremental import run as run_incremental
+    from experiments.old.clustering_approach.vinted_pipeline_incremental import run as run_incremental
     run_incremental(ns)
     return 0
 

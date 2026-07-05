@@ -13,7 +13,7 @@ embeddings of the primary image.
 The experiment is isolated under:
 
 ```text
-data/experiments/basic_plus_visual/
+experiments/old/basic_plus_visual/data/
 ```
 
 It does not write to production `old_df.csv`, `sold_df.csv`, `unsold_df.csv`, or
@@ -24,7 +24,7 @@ normal full-scrape files.
 One trained model per search lives in:
 
 ```text
-data/experiments/basic_plus_visual/models/*_extra_trees.json
+experiments/old/basic_plus_visual/data/models/*_extra_trees.json
 ```
 
 Each metadata file references its pickled artifact and stores the
@@ -76,7 +76,7 @@ calibrations, and prevents one over-confident model from crowding out the rest.
 
 Defaults: `--max-items-total 30` items kept globally per cycle. Tracked items
 are deduplicated by `(Dataid, SearchName)` with the most recent `_tracked_at`
-winning (see `merge_tracked` in [`runner.py`](../scripts/experiments/old/basic_plus_visual/runner.py)).
+winning (see `merge_tracked` in [`runner.py`](../experiments/old/basic_plus_visual/runner.py)).
 
 ## Recheck Schedule
 
@@ -99,19 +99,19 @@ Each recheck call writes `reports/recheck_<ts>.csv` and emits an
 Single collection pass:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py collect-once
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/basic_plus_visual/runner.py collect-once
 ```
 
 Single recheck pass for items due:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py recheck-due
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/basic_plus_visual/runner.py recheck-due
 ```
 
 Hourly run-loop (production):
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/old/basic_plus_visual/runner.py run-loop --collect-every-hours 1 --max-items-total 30
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/basic_plus_visual/runner.py run-loop --collect-every-hours 1 --max-items-total 30
 ```
 
 Recommended invocation when restarting after a crash (keeps stdout flushing so
@@ -119,8 +119,8 @@ errors surface in the log immediately):
 
 ```bash
 PYTHONUNBUFFERED=1 nohup /home/ale/miniconda3/envs/vinted_scraper/bin/python \
-  scripts/experiments/old/basic_plus_visual/runner.py run-loop \
-  >> data/experiments/basic_plus_visual/run-loop.log 2>&1 &
+  experiments/old/basic_plus_visual/runner.py run-loop \
+  >> experiments/old/basic_plus_visual/data/run-loop.log 2>&1 &
 disown
 ```
 
@@ -128,7 +128,7 @@ To resume an existing run directory (preserves `tracked_items.csv` and recheck
 history), pass `--out-dir` explicitly:
 
 ```bash
---out-dir data/experiments/basic_plus_visual/live_runs/<run_id>
+--out-dir experiments/old/basic_plus_visual/data/live_runs/<run_id>
 ```
 
 Without `--out-dir`, a fresh timestamped run dir is created on every launch.
@@ -136,7 +136,7 @@ Without `--out-dir`, a fresh timestamped run dir is created on every launch.
 ## Run Directory Layout
 
 ```text
-data/experiments/basic_plus_visual/live_runs/<run_id>/
+experiments/old/basic_plus_visual/data/live_runs/<run_id>/
 ├── raw_snapshots/<search>_<ts>.csv         # raw catalog scrape per cycle
 ├── image_cache/<search>/<item_id>/primary.<ext>
 ├── scored_items/<search>_<ts>.csv          # post-scoring frame per cycle per search
@@ -178,7 +178,7 @@ cascade at lower compute cost.
   required because the trained models depend on `DinoEmbedding_0000..0383` —
   omitting `dino` will break scoring.
 - The `_ensure_local_primary_images` helper in
-  [`runner.py`](../scripts/experiments/old/basic_plus_visual/runner.py) intentionally
+  [`runner.py`](../experiments/old/basic_plus_visual/runner.py) intentionally
   does its own image download rather than reusing
   `cascade_runner.ensure_local_primary_images`, because the cascade helper
   asserts the path is under `benchmark_basic_to_full/` and would reject writes

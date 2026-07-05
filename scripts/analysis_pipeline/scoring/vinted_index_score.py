@@ -8,4 +8,4 @@ for path in (ROOT, ROOT / "scripts"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from experiments.clustering_approach.vinted_index_score import *  # noqa: F401,F403
+from experiments.old.clustering_approach.vinted_index_score import *  # noqa: F401,F403

@@ -13,10 +13,10 @@ Use this skill for read-only status checks of the local Vinted live processes.
 - Do not edit files, restart processes, kill processes, or send Telegram messages unless the user explicitly asks.
 - Report exact timestamps and paths. Use Europe/Rome local time when interpreting "today", "yesterday", or "last N days".
 - Treat these as the usual live surfaces:
-  - collector: `scripts/experiments/current/time_to_sell/live_bin_collector.py`
-  - giant scorer / Telegram loop: `scripts/experiments/current/basic_5_giant_model/apply_to_live_collector.py`
-  - collector runs: `data/experiments/time_to_sell/live_runs/`
-  - giant scoring: `data/experiments/basic_5_giant_model/live_scoring/`
+  - collector: `experiments/current/time_to_sell/live_bin_collector.py`
+  - giant scorer / Telegram loop: `experiments/current/basic_5_giant_model/apply_to_live_collector.py`
+  - collector runs: `experiments/current/time_to_sell/data/live_runs/`
+  - giant scoring: `experiments/current/basic_5_giant_model/data/live_scoring/`
 
 ## Workflow
 
@@ -29,8 +29,8 @@ Use this skill for read-only status checks of the local Vinted live processes.
 2. Find the latest relevant logs without opening broad folders:
 
    ```bash
-   find data/experiments/time_to_sell/live_runs -maxdepth 3 -type f -name 'collector.log' -printf '%T@ %p\n' | sort -nr | head
-   find data/experiments/basic_5_giant_model/live_scoring -maxdepth 2 -type f -name '*.log' -printf '%T@ %p\n' | sort -nr | head
+   find experiments/current/time_to_sell/data/live_runs -maxdepth 3 -type f -name 'collector.log' -printf '%T@ %p\n' | sort -nr | head
+   find experiments/current/basic_5_giant_model/data/live_scoring -maxdepth 2 -type f -name '*.log' -printf '%T@ %p\n' | sort -nr | head
    ```
 
 3. Read only the latest small tails:

@@ -20,15 +20,15 @@ Update section by hand when goals, decisions, or unfinished tasks change.
 ### Current Goals
 
 - Keep Vinted deal-finder work using local historical data + public listing snapshots.
-- Deal-finder experiment outputs go `data/experiments/deal_finder/`.
-- Photo-improvement track go `data/experiments/photo_arbitrage/`.
+- Deal-finder experiment outputs go `experiments/old/deal_finder/data/`.
+- Photo-improvement track go `experiments/old/photo_arbitrage/data/`.
 - Preserve prod data + private config files.
 
 ### Active Work
 
 - Normal scraping maybe running via `scripts/main.py`.
 - Full item/seller enrichment maybe running via `scripts/stage_balanced_full_scrape.py`.
-- Photo visual scoring maybe running via `scripts/experiments/current/photo_arbitrage/score_sold_unsold_visuals.py`.
+- Photo visual scoring maybe running via `experiments/old/photo_arbitrage/score_sold_unsold_visuals.py`.
 
 ### Important Safety Rules
 
@@ -40,8 +40,8 @@ Update section by hand when goals, decisions, or unfinished tasks change.
 
 ### Current Conversation Notes
 
-- Deal-finder track has offline + paper-trading tooling in `scripts/experiments/current/deal_finder/`.
-- Photo-improvement track has visual scoring tooling in `scripts/experiments/current/photo_arbitrage/`.
+- Deal-finder track has offline + paper-trading tooling in `experiments/old/deal_finder/`.
+- Photo-improvement track has visual scoring tooling in `experiments/old/photo_arbitrage/`.
 - DINOv3 access fixed for `facebook/dinov3-vits16-pretrain-lvd1689m`.
 - DINOv3 now saves `DinoEmbedding`, `DinoEmbeddingDim`, `DinoEmbeddingNorm`, `DinoOutlierScore`.
 - Balanced sold/unsold visual scoring run covers six searches: `griffati_donna_all`, `griffati_uomo_all`, `gucci`, `nike`, `prada`, `ps4`.
@@ -51,7 +51,7 @@ Update section by hand when goals, decisions, or unfinished tasks change.
 ### Next Recommended Prompt
 
 ```text
-Read docs/SESSION_CONTEXT.md first. Then check the current active processes and the latest files under data/experiments/photo_arbitrage/ and data/experiments/deal_finder/. Summarize what is still running, what finished, and what should be done next.
+Read docs/SESSION_CONTEXT.md first. Then check the current active processes and the latest files under experiments/old/photo_arbitrage/data/ and experiments/old/deal_finder/data/. Summarize what is still running, what finished, and what should be done next.
 ```
 
 <!-- AUTO_SNAPSHOT_START -->
@@ -112,7 +112,7 @@ M .vscode/settings.json
 ?? scripts/check_recent_sold_truth.py
 ?? scripts/config/
 ?? scripts/daily_eventual_sales.py
-?? scripts/experiments/
+?? experiments/
 ?? scripts/full_scrape_sold_history.py
 ?? scripts/repair_big_raw_prices.py
 ?? scripts/report_download_stats.py
@@ -130,87 +130,87 @@ _No matching long-running project processes found._
 
 ### Recent Experiment Files
 
-#### `data/experiments/deal_finder/live_runs`
+#### `experiments/old/deal_finder/data/live_runs`
 
-- `2026-05-15T00:49:33+02:00` `25054` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/events.jsonl`
-- `2026-05-15T00:49:33+02:00` `6228` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/latest_status.json`
-- `2026-05-15T00:49:33+02:00` `5798` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/nohup.log`
-- `2026-05-15T00:49:33+02:00` `11476` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/hourly_history.csv`
-- `2026-05-15T00:49:33+02:00` `11367` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/tracked_state.csv`
-- `2026-05-15T00:49:32+02:00` `4533` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/rechecks/recheck_20260514_224932.csv`
-- `2026-05-15T00:49:13+02:00` `102183` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/ps4_scored_2026-05-14T224850.508795Z0000.csv`
-- `2026-05-15T00:49:13+02:00` `63207` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/ps4_raw_2026-05-14T224850.508795Z0000.csv`
-- `2026-05-15T00:48:50+02:00` `101259` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/prada_scored_2026-05-14T224826.019198Z0000.csv`
-- `2026-05-15T00:48:50+02:00` `62257` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/prada_raw_2026-05-14T224826.019198Z0000.csv`
-- `2026-05-15T00:48:26+02:00` `105609` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/nike_scored_2026-05-14T224759.827664Z0000.csv`
-- `2026-05-15T00:48:25+02:00` `62839` bytes `data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/nike_raw_2026-05-14T224759.827664Z0000.csv`
+- `2026-05-15T00:49:33+02:00` `25054` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/events.jsonl`
+- `2026-05-15T00:49:33+02:00` `6228` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/latest_status.json`
+- `2026-05-15T00:49:33+02:00` `5798` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/nohup.log`
+- `2026-05-15T00:49:33+02:00` `11476` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/hourly_history.csv`
+- `2026-05-15T00:49:33+02:00` `11367` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/tracked_state.csv`
+- `2026-05-15T00:49:32+02:00` `4533` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/rechecks/recheck_20260514_224932.csv`
+- `2026-05-15T00:49:13+02:00` `102183` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/ps4_scored_2026-05-14T224850.508795Z0000.csv`
+- `2026-05-15T00:49:13+02:00` `63207` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/ps4_raw_2026-05-14T224850.508795Z0000.csv`
+- `2026-05-15T00:48:50+02:00` `101259` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/prada_scored_2026-05-14T224826.019198Z0000.csv`
+- `2026-05-15T00:48:50+02:00` `62257` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/prada_raw_2026-05-14T224826.019198Z0000.csv`
+- `2026-05-15T00:48:26+02:00` `105609` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/scored_snapshots/nike_scored_2026-05-14T224759.827664Z0000.csv`
+- `2026-05-15T00:48:25+02:00` `62839` bytes `experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514_live/raw_snapshots/nike_raw_2026-05-14T224759.827664Z0000.csv`
 
-#### `data/experiments/deal_finder/offline_runs`
+#### `experiments/old/deal_finder/data/offline_runs`
 
-- `2026-05-10T22:34:32+02:00` `8088` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/manifest.json`
-- `2026-05-10T22:34:32+02:00` `2541` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/sweep_report.md`
-- `2026-05-10T22:34:32+02:00` `13522` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/promotion_candidates.json`
-- `2026-05-10T22:34:32+02:00` `4339` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/best_by_approach.csv`
-- `2026-05-10T22:34:32+02:00` `5436` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/best_by_search.csv`
-- `2026-05-10T22:34:32+02:00` `34617` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/metrics_long.csv`
-- `2026-05-10T22:34:32+02:00` `231094` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/metrics.json`
-- `2026-05-10T22:26:32+02:00` `9023` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/dataset_summary.json`
-- `2026-05-10T22:26:32+02:00` `1211764` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/datasets/Scarpe_Griffate.csv`
-- `2026-05-10T22:26:31+02:00` `22298624` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/datasets/ps4.csv`
-- `2026-05-10T22:26:00+02:00` `21623722` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/datasets/prada.csv`
-- `2026-05-10T22:25:40+02:00` `162395894` bytes `data/experiments/deal_finder/offline_runs/sweep_20260510_222252/datasets/nike.csv`
+- `2026-05-10T22:34:32+02:00` `8088` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/manifest.json`
+- `2026-05-10T22:34:32+02:00` `2541` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/sweep_report.md`
+- `2026-05-10T22:34:32+02:00` `13522` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/promotion_candidates.json`
+- `2026-05-10T22:34:32+02:00` `4339` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/best_by_approach.csv`
+- `2026-05-10T22:34:32+02:00` `5436` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/best_by_search.csv`
+- `2026-05-10T22:34:32+02:00` `34617` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/metrics_long.csv`
+- `2026-05-10T22:34:32+02:00` `231094` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/metrics.json`
+- `2026-05-10T22:26:32+02:00` `9023` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/dataset_summary.json`
+- `2026-05-10T22:26:32+02:00` `1211764` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/datasets/Scarpe_Griffate.csv`
+- `2026-05-10T22:26:31+02:00` `22298624` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/datasets/ps4.csv`
+- `2026-05-10T22:26:00+02:00` `21623722` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/datasets/prada.csv`
+- `2026-05-10T22:25:40+02:00` `162395894` bytes `experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/datasets/nike.csv`
 
-#### `data/experiments/photo_arbitrage/features`
+#### `experiments/old/photo_arbitrage/data/features`
 
-- `2026-05-15T00:50:03+02:00` `1068300` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005750_006000.csv`
-- `2026-05-15T00:47:34+02:00` `1059426` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005500_005750.csv`
-- `2026-05-15T00:44:06+02:00` `999510` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005250_005500.csv`
-- `2026-05-15T00:41:43+02:00` `1063387` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005000_005250.csv`
-- `2026-05-15T00:40:00+02:00` `1047010` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004750_005000.csv`
-- `2026-05-15T00:38:26+02:00` `1072550` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004500_004750.csv`
-- `2026-05-15T00:36:56+02:00` `1090075` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004250_004500.csv`
-- `2026-05-15T00:35:27+02:00` `1035300` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004000_004250.csv`
-- `2026-05-15T00:34:03+02:00` `1055466` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003750_004000.csv`
-- `2026-05-15T00:32:25+02:00` `1023206` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003500_003750.csv`
-- `2026-05-15T00:30:47+02:00` `1035194` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003250_003500.csv`
-- `2026-05-15T00:28:56+02:00` `1064066` bytes `data/experiments/photo_arbitrage/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003000_003250.csv`
+- `2026-05-15T00:50:03+02:00` `1068300` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005750_006000.csv`
+- `2026-05-15T00:47:34+02:00` `1059426` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005500_005750.csv`
+- `2026-05-15T00:44:06+02:00` `999510` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005250_005500.csv`
+- `2026-05-15T00:41:43+02:00` `1063387` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_005000_005250.csv`
+- `2026-05-15T00:40:00+02:00` `1047010` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004750_005000.csv`
+- `2026-05-15T00:38:26+02:00` `1072550` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004500_004750.csv`
+- `2026-05-15T00:36:56+02:00` `1090075` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004250_004500.csv`
+- `2026-05-15T00:35:27+02:00` `1035300` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_004000_004250.csv`
+- `2026-05-15T00:34:03+02:00` `1055466` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003750_004000.csv`
+- `2026-05-15T00:32:25+02:00` `1023206` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003500_003750.csv`
+- `2026-05-15T00:30:47+02:00` `1035194` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003250_003500.csv`
+- `2026-05-15T00:28:56+02:00` `1064066` bytes `experiments/old/photo_arbitrage/data/features/sold_unsold_visuals_20260514_full/chunks/gucci/gucci_chunk_003000_003250.csv`
 
-#### `data/experiments/photo_arbitrage/reports`
+#### `experiments/old/photo_arbitrage/data/reports`
 
-- `2026-05-14T22:58:34+02:00` `7` bytes `data/experiments/photo_arbitrage/reports/sold_unsold_visuals_20260514_full/nohup_test.pid`
-- `2026-05-14T22:58:34+02:00` `0` bytes `data/experiments/photo_arbitrage/reports/sold_unsold_visuals_20260514_full/nohup_test.log`
-- `2026-05-14T22:57:57+02:00` `7` bytes `data/experiments/photo_arbitrage/reports/sold_unsold_visuals_20260514_full/runner.pid`
-- `2026-05-14T22:57:57+02:00` `0` bytes `data/experiments/photo_arbitrage/reports/sold_unsold_visuals_20260514_full/runner.log`
-- `2026-05-14T22:56:45+02:00` `12008` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_batch_resume/manifest.json`
-- `2026-05-14T22:56:45+02:00` `39920` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_batch_resume/top_bad_photo_review_queue.csv`
-- `2026-05-14T22:56:45+02:00` `1051` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_batch_resume/method_summary_by_search_and_label.csv`
-- `2026-05-14T22:56:45+02:00` `392` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_batch_resume/balanced_counts.csv`
-- `2026-05-14T21:39:36+02:00` `9658` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_dino_embedding/manifest.json`
-- `2026-05-14T21:39:36+02:00` `39579` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_dino_embedding/top_bad_photo_review_queue.csv`
-- `2026-05-14T21:39:36+02:00` `932` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_dino_embedding/method_summary_by_search_and_label.csv`
-- `2026-05-14T21:39:36+02:00` `392` bytes `data/experiments/photo_arbitrage/reports/smoke_sold_unsold_visuals_dino_embedding/balanced_counts.csv`
+- `2026-05-14T22:58:34+02:00` `7` bytes `experiments/old/photo_arbitrage/data/reports/sold_unsold_visuals_20260514_full/nohup_test.pid`
+- `2026-05-14T22:58:34+02:00` `0` bytes `experiments/old/photo_arbitrage/data/reports/sold_unsold_visuals_20260514_full/nohup_test.log`
+- `2026-05-14T22:57:57+02:00` `7` bytes `experiments/old/photo_arbitrage/data/reports/sold_unsold_visuals_20260514_full/runner.pid`
+- `2026-05-14T22:57:57+02:00` `0` bytes `experiments/old/photo_arbitrage/data/reports/sold_unsold_visuals_20260514_full/runner.log`
+- `2026-05-14T22:56:45+02:00` `12008` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_batch_resume/manifest.json`
+- `2026-05-14T22:56:45+02:00` `39920` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_batch_resume/top_bad_photo_review_queue.csv`
+- `2026-05-14T22:56:45+02:00` `1051` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_batch_resume/method_summary_by_search_and_label.csv`
+- `2026-05-14T22:56:45+02:00` `392` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_batch_resume/balanced_counts.csv`
+- `2026-05-14T21:39:36+02:00` `9658` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_dino_embedding/manifest.json`
+- `2026-05-14T21:39:36+02:00` `39579` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_dino_embedding/top_bad_photo_review_queue.csv`
+- `2026-05-14T21:39:36+02:00` `932` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_dino_embedding/method_summary_by_search_and_label.csv`
+- `2026-05-14T21:39:36+02:00` `392` bytes `experiments/old/photo_arbitrage/data/reports/smoke_sold_unsold_visuals_dino_embedding/balanced_counts.csv`
 
-#### `data/experiments/photo_arbitrage/candidates`
+#### `experiments/old/photo_arbitrage/data/candidates`
 
-- `2026-05-15T00:05:23+02:00` `5172046` bytes `data/experiments/photo_arbitrage/candidates/sold_unsold_visuals_20260514_full/gucci_candidates.csv`
-- `2026-05-14T22:56:45+02:00` `1840` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/ps4_candidates.csv`
-- `2026-05-14T22:56:44+02:00` `1738` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/prada_candidates.csv`
-- `2026-05-14T22:56:43+02:00` `2754` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/nike_candidates.csv`
-- `2026-05-14T22:56:37+02:00` `1476` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/gucci_candidates.csv`
-- `2026-05-14T22:56:36+02:00` `1832` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/griffati_uomo_all_candidates.csv`
-- `2026-05-14T22:56:24+02:00` `2597` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_batch_resume/griffati_donna_all_candidates.csv`
-- `2026-05-14T22:48:47+02:00` `4985224` bytes `data/experiments/photo_arbitrage/candidates/sold_unsold_visuals_20260514_full/griffati_uomo_all_candidates.csv`
-- `2026-05-14T21:40:02+02:00` `6034836` bytes `data/experiments/photo_arbitrage/candidates/sold_unsold_visuals_20260514_full/griffati_donna_all_candidates.csv`
-- `2026-05-14T21:39:35+02:00` `1787` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_dino_embedding/ps4_candidates.csv`
-- `2026-05-14T21:39:33+02:00` `1693` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_dino_embedding/prada_candidates.csv`
-- `2026-05-14T21:39:32+02:00` `2754` bytes `data/experiments/photo_arbitrage/candidates/smoke_sold_unsold_visuals_dino_embedding/nike_candidates.csv`
+- `2026-05-15T00:05:23+02:00` `5172046` bytes `experiments/old/photo_arbitrage/data/candidates/sold_unsold_visuals_20260514_full/gucci_candidates.csv`
+- `2026-05-14T22:56:45+02:00` `1840` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/ps4_candidates.csv`
+- `2026-05-14T22:56:44+02:00` `1738` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/prada_candidates.csv`
+- `2026-05-14T22:56:43+02:00` `2754` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/nike_candidates.csv`
+- `2026-05-14T22:56:37+02:00` `1476` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/gucci_candidates.csv`
+- `2026-05-14T22:56:36+02:00` `1832` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/griffati_uomo_all_candidates.csv`
+- `2026-05-14T22:56:24+02:00` `2597` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_batch_resume/griffati_donna_all_candidates.csv`
+- `2026-05-14T22:48:47+02:00` `4985224` bytes `experiments/old/photo_arbitrage/data/candidates/sold_unsold_visuals_20260514_full/griffati_uomo_all_candidates.csv`
+- `2026-05-14T21:40:02+02:00` `6034836` bytes `experiments/old/photo_arbitrage/data/candidates/sold_unsold_visuals_20260514_full/griffati_donna_all_candidates.csv`
+- `2026-05-14T21:39:35+02:00` `1787` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_dino_embedding/ps4_candidates.csv`
+- `2026-05-14T21:39:33+02:00` `1693` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_dino_embedding/prada_candidates.csv`
+- `2026-05-14T21:39:32+02:00` `2754` bytes `experiments/old/photo_arbitrage/data/candidates/smoke_sold_unsold_visuals_dino_embedding/nike_candidates.csv`
 
 ### Useful Resume Commands
 
 ```bash
 python3 scripts/save_context_snapshot.py
 ps -ef | rg 'scripts/main.py|paper_trade|score_sold_unsold_visuals.py|stage_balanced_full_scrape.py'
-find data/experiments -type f -mmin -120 | sort
+find experiments/current experiments/old -path '*/data/*' -type f -mmin -120 | sort
 ```
 
 <!-- AUTO_SNAPSHOT_END -->

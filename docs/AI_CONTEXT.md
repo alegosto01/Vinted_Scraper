@@ -39,18 +39,26 @@ This project scrapes Vinted search snapshots, tracks listing status over time, r
 | Pipeline wrapper | `scripts/workflow_runner.py` |
 | Deal scoring pipeline | `scripts/analysis_pipeline/` |
 | Eventual-sale checks | `scripts/daily_eventual_sales.py`, `scripts/analysis_pipeline/evaluation/update_eventual_sales.py` |
-| Benchmark cascade | `scripts/experiments/current/benchmark_basic_to_full/` |
-| Full scrape model | `scripts/experiments/current/full_scrape_model/` |
+| Benchmark cascade | `experiments/old/benchmark_basic_to_full/` |
+| Full scrape model | `experiments/old/full_scrape_model/` |
 | Streamlit UI | `app.py` |
 | Tests | `tests/` |
+
+## Runtime Artifacts
+
+Stable scrape datasets live under `data/simple_scrape/`. Local process output lives under `runtime/`:
+
+- `runtime/logs/simple_scrape/` for scraper telemetry, eventual-sale logs, and JSONL counters.
+- `runtime/pids/` for process ID files.
+- `runtime/archive/` for local rotated runtime history.
 
 ## Token-Saving Boundaries
 
 Do not scan these unless the user asks for them explicitly:
 
 - `data/`
+- `runtime/`
 - `graphify-out/`
-- `wiki/`
 - generated CSV, SQLite, image, model, and report artifacts
 
 For project rules and common commands, prefer `docs/CODEX_WORKFLOW.md`.

@@ -10,4 +10,4 @@ if str(ROOT) not in sys.path:
 
 
 if __name__ == "__main__":
-    runpy.run_module("experiments.clustering_approach.clustering_products_from_csv", run_name="__main__")
+    runpy.run_module("experiments.old.clustering_approach.clustering_products_from_csv", run_name="__main__")

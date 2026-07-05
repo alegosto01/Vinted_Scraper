@@ -10,7 +10,7 @@ SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 # --------------------------------
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUN_REL="data/experiments/time_to_sell/live_runs/bin_collector_20260602_214104"
+RUN_REL="experiments/current/time_to_sell/data/live_runs/bin_collector_20260602_214104"
 EXCLUDE="$REPO_ROOT/deploy/rsync-exclude.txt"
 
 # --mkpath needs rsync >= 3.2.3; if older, create the dir on VPS once by hand.

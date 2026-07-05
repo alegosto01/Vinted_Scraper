@@ -38,3 +38,16 @@ class RuntimeValidationTests(unittest.TestCase):
         result = settings.validate_for_simple_scrape([object()], require_proxy=False)
 
         self.assertTrue(result.ok)
+
+    def test_runtime_paths_default_under_project_root(self):
+        root = Path('/tmp/vinted-test-root')
+        paths = PathsConfig(project_root=root)
+
+        self.assertEqual(paths.runtime_root, root / 'runtime')
+        self.assertEqual(paths.runtime_logs_root, root / 'runtime' / 'logs')
+        self.assertEqual(paths.runtime_pids_root, root / 'runtime' / 'pids')
+        self.assertEqual(paths.simple_scrape_runtime_logs_dir, root / 'runtime' / 'logs' / 'simple_scrape')
+        self.assertEqual(paths.scraper_log_path, root / 'runtime' / 'logs' / 'simple_scrape' / 'usual_live_scrape.log')
+        self.assertEqual(paths.eventual_sales_log_path, root / 'runtime' / 'logs' / 'simple_scrape' / 'eventual_sale.log')
+        self.assertEqual(paths.download_stats_path, root / 'runtime' / 'logs' / 'simple_scrape' / 'download_stats.jsonl')
+        self.assertEqual(paths.proxy_identity_stats_path, root / 'runtime' / 'logs' / 'simple_scrape' / 'proxy_identity_stats.jsonl')

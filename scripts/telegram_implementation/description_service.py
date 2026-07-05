@@ -16,7 +16,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from experiments.reselling_process.create_description.generate import (
+from experiments.old.reselling_process.create_description.generate import (
     DEFAULT_GEMINI_MODEL,
     DEFAULT_OLLAMA_MODEL,
     build_description_payload,

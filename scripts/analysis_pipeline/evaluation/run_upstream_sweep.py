@@ -16,7 +16,7 @@ for path in (SCRIPTS_DIR, ANALYSIS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from experiments.clustering_approach.vinted_pipeline_batch import run as run_batch
+from experiments.old.clustering_approach.vinted_pipeline_batch import run as run_batch
 
 sys.modules.setdefault("full_scraper", types.SimpleNamespace(Full_Scraper=object))
 from analysis_pipeline.scoring.final_buy_filter import select_candidates

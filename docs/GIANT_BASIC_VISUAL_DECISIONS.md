@@ -14,7 +14,7 @@ The `basic_5_giant_model` (9-model union, numeric/text features) was the origina
 
 ### Single model, global → per-search thresholds
 - **Original design**: single global threshold across all searches (chosen by `choose_threshold` on the pooled val set).
-- **Decision (2026-07-01)**: switched to **per-search thresholds**, calibrated on live matured 72h labels from the current tracked population using `scripts/experiments/current/giant_basic_visual/calibrate_thresholds.py` (or the inline equivalent). Saved as `per_search_thresholds.json` alongside the model pkl.
+- **Decision (2026-07-01)**: switched to **per-search thresholds**, calibrated on live matured 72h labels from the current tracked population using `experiments/current/giant_basic_visual/calibrate_thresholds.py` (or the inline equivalent). Saved as `per_search_thresholds.json` alongside the model pkl.
 - **Fallback**: if a search has no entry, the global threshold applies.
 - **Why**: 3 new searches (donna_accessori_gioielli, hobby_collezionismo, telefoni) had 0 passes at the global threshold (0.558) because the model assigns them uniformly low scores. Per-search thresholds were calibrated at lower values for those searches while tightening others.
 

@@ -30,19 +30,19 @@ from experiments.current.basic_5_giant_model.paths import (  # noqa: E402
     write_json,
     write_manifest,
 )
-from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
-from experiments.deal_finder.modeling import (  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder import model_sweep as base_sweep  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder.modeling import (  # noqa: E402
     ELIGIBLE_COL,
     TARGET_COL,
     choose_threshold,
     score_with_model,
 )
-from experiments.full_scrape_model.compare_feature_modalities import (  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.full_scrape_model.compare_feature_modalities import (  # noqa: E402
     BASIC_NUMERIC,
     BASIC_TEXT,
     EXPERIMENTAL_BASIC_APPROACHES,
 )
-from experiments.full_scrape_model.dataset import TASK_SOLD_STATUS, build_search_dataset  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.full_scrape_model.dataset import TASK_SOLD_STATUS, build_search_dataset  # noqa: E402
 
 
 DEFAULT_SEARCHES = (

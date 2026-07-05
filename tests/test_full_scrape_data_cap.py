@@ -12,10 +12,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.deal_finder import model_sweep
+from experiments.old.deal_finder import model_sweep
 
 
-SOLD_STATUS_RUN = ROOT / "data" / "experiments" / "full_scrape_model" / "offline_runs" / "sold_status_sweep_20260515_101018"
+SOLD_STATUS_RUN = ROOT / "experiments" / "old" / "full_scrape_model" / "data" / "offline_runs" / "sold_status_sweep_20260515_101018"
 BEST_BY_SEARCH_PATH = SOLD_STATUS_RUN / "best_by_search.csv"
 DATASETS_DIR = SOLD_STATUS_RUN / "datasets"
 EXCLUDED_SEARCHES = {"Borse_Griffate", "Scarpe_Griffate"}

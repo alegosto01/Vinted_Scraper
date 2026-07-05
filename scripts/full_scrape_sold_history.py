@@ -21,7 +21,7 @@ from config.project_config import settings
 from full_scraper import Full_Scraper
 
 
-REPORT_DIR = ROOT / "data" / "experiments" / "deal_finder" / "reports"
+REPORT_DIR = ROOT / "experiments" / "old" / "deal_finder" / "data" / "reports"
 
 
 def normalize_id(value: Any) -> str:

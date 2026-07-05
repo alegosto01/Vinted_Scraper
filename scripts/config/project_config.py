@@ -27,12 +27,56 @@ class PathsConfig:
     simple_scrape_dir: Path = PROJECT_ROOT / 'data' / 'simple_scrape'
     full_scrape_dir: Path = PROJECT_ROOT / 'data' / 'full_scrape'
     models_dir: Path = PROJECT_ROOT / 'models'
+    runtime_dir: Path | None = None
+    runtime_logs_dir: Path | None = None
+    runtime_pids_dir: Path | None = None
     searches_yaml: Path = PROJECT_ROOT / 'data' / 'searches.yaml'
     brand_ids_csv: Path = PROJECT_ROOT / 'data' / 'brand_ids.csv'
     telegram_env_file: Path = DEFAULT_TELEGRAM_ENV_PATH
 
+    @property
+    def runtime_root(self) -> Path:
+        return Path(self.runtime_dir) if self.runtime_dir is not None else self.project_root / 'runtime'
+
+    @property
+    def runtime_logs_root(self) -> Path:
+        return Path(self.runtime_logs_dir) if self.runtime_logs_dir is not None else self.runtime_root / 'logs'
+
+    @property
+    def runtime_pids_root(self) -> Path:
+        return Path(self.runtime_pids_dir) if self.runtime_pids_dir is not None else self.runtime_root / 'pids'
+
+    @property
+    def simple_scrape_runtime_logs_dir(self) -> Path:
+        return self.runtime_logs_root / 'simple_scrape'
+
+    @property
+    def scraper_log_path(self) -> Path:
+        return self.simple_scrape_runtime_logs_dir / 'usual_live_scrape.log'
+
+    @property
+    def eventual_sales_log_path(self) -> Path:
+        return self.simple_scrape_runtime_logs_dir / 'eventual_sale.log'
+
+    @property
+    def download_stats_path(self) -> Path:
+        return self.simple_scrape_runtime_logs_dir / 'download_stats.jsonl'
+
+    @property
+    def proxy_identity_stats_path(self) -> Path:
+        return self.simple_scrape_runtime_logs_dir / 'proxy_identity_stats.jsonl'
+
     def ensure_runtime_dirs(self) -> None:
-        for path in (self.data_dir, self.simple_scrape_dir, self.full_scrape_dir, self.models_dir):
+        for path in (
+            self.data_dir,
+            self.simple_scrape_dir,
+            self.full_scrape_dir,
+            self.models_dir,
+            self.runtime_root,
+            self.runtime_logs_root,
+            self.runtime_pids_root,
+            self.simple_scrape_runtime_logs_dir,
+        ):
             path.mkdir(parents=True, exist_ok=True)
 
 

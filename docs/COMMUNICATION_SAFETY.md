@@ -14,7 +14,7 @@ Work only with local project files and public listing snapshots.
 Use the existing project configuration.
 Do not edit private configuration files, credentials, or account settings.
 Do not make purchases, contact sellers, send messages, or perform account actions.
-Save experiment outputs only under data/experiments/deal_finder/ unless I explicitly approve another location.
+Save experiment outputs only under experiments/old/deal_finder/data/ unless I explicitly approve another location.
 ```
 
 Then add the specific task, for example:
@@ -33,7 +33,7 @@ Use wording like:
 - "offline model validation"
 - "status recheck for tracked listings"
 - "existing project configuration"
-- "write only under `data/experiments/deal_finder/`"
+- "write only under `experiments/old/deal_finder/data/`"
 - "do not contact sellers or perform account actions"
 
 Avoid wording that suggests the task is about access, accounts, evasion, or aggressive collection. Prefer these safer replacements:
@@ -55,7 +55,7 @@ Please continue the local deal-finder experiment.
 
 Use only the existing project configuration.
 Collect public first-page listing snapshots for paper-trading evaluation.
-Save outputs only under data/experiments/deal_finder/.
+Save outputs only under experiments/old/deal_finder/data/.
 Do not edit private configuration files.
 Do not make purchases, contact sellers, or perform account actions.
 Summarize the offline/live metrics and any files changed.
@@ -93,7 +93,7 @@ Use these templates when possible.
 ```text
 Please check the current local paper-trading benchmark results.
 Summarize performance by search, model, and threshold.
-Use only files under data/experiments/deal_finder/.
+Use only files under experiments/old/deal_finder/data/.
 Do not change any files.
 ```
 
@@ -103,7 +103,7 @@ Do not change any files.
 Please add an offline model-comparison experiment for my local saved CSV data.
 Use only historical files already present in data/simple_scrape/.
 Avoid future-label leakage.
-Write outputs under data/experiments/deal_finder/.
+Write outputs under experiments/old/deal_finder/data/.
 Do not modify production CSVs or private configuration.
 ```
 
@@ -112,7 +112,7 @@ Do not modify production CSVs or private configuration.
 ```text
 Please update the scheduled local paper-trading benchmark.
 Use public listing snapshots and the existing project configuration.
-Save all benchmark outputs under data/experiments/deal_finder/.
+Save all benchmark outputs under experiments/old/deal_finder/data/.
 Do not contact sellers, make purchases, send messages, or perform account actions.
 ```
 

@@ -57,10 +57,10 @@ _DEDUP_WINDOW = 1800  # seconds before re-alerting on the same error signature
 
 # ── Watched logs ───────────────────────────────────────────────────────────────
 _WATCHED: dict[str, Path] = {
-    "cascade": PROJECT_ROOT / "data/experiments/benchmark_basic_to_full/live_runs/cascade_live/cascade_loop.log",
+    "cascade": PROJECT_ROOT / "experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live/cascade_loop.log",
     "bot": PROJECT_ROOT / "data/telegram_implementation/bot.log",
-    "scraper": PROJECT_ROOT / "data/simple_scrape/logs/usual_live_scrape.log",
-    "eventual_sales": PROJECT_ROOT / "data/simple_scrape/eventual_sale.log",
+    "scraper": settings.paths.scraper_log_path,
+    "eventual_sales": settings.paths.eventual_sales_log_path,
 }
 
 # ── Known-OK noise: skip Gemini entirely ──────────────────────────────────────

@@ -6,17 +6,16 @@
 .claude/
 .kimi/
 graphify-out/
+runtime/
 
-# Personal knowledge base branches stay separate from this Graphify branch.
-wiki/
+# Personal/generated docs stay separate from this Graphify branch.
 CLAUDE.md
 docs/full_experiment_basic_visual_model.md
 
 # Large/generated experiment data
 data/
 models/
-scripts/experiments/**/reports/
-scripts/experiments/**/runs/
+experiments/**/data/
 deal_score_eval/
 out_subclustering/
 
@@ -28,6 +27,7 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 venv/
+.venv_analysis/
 
 # Local configuration and secrets
 .env
@@ -39,6 +39,8 @@ scripts/telegram_scripts/bot_env.env
 *.sqlite
 *.db
 *.log
+*.jsonl
+*.pid
 *.pkl
 *.joblib
 *.pt

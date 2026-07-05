@@ -4,7 +4,7 @@ This branch is optimized for low-token Claude Code work with Graphify.
 
 ## Start Here
 
-Read `docs/AI_CONTEXT.md` for the compact project map. Do not read the full `wiki/`, `data/`, or `graphify-out/` directories unless the user explicitly asks.
+Read `docs/AI_CONTEXT.md` for the compact project map. Do not read the full `data/` or `graphify-out/` directories unless the user explicitly asks.
 
 ## Graphify
 
@@ -31,11 +31,9 @@ graphify update . --force
 Do not scan these by default:
 
 - `data/`
-- `wiki/`
+- `runtime/`
 - `graphify-out/`
 - generated CSV, SQLite, model, report, image, and media artifacts
-
-The wiki files are personal narrative notes and are not the default context source on this branch.
 
 ## Project
 
@@ -47,8 +45,8 @@ High-value entry points:
 - `scripts/main.py`
 - `scripts/simple_scraper.py`
 - `scripts/analysis_pipeline/`
-- `scripts/experiments/current/benchmark_basic_to_full/`
-- `scripts/experiments/current/full_scrape_model/`
+- `experiments/old/benchmark_basic_to_full/`
+- `experiments/old/full_scrape_model/`
 - `app.py`
 - `tests/`
 

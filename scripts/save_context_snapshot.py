@@ -24,11 +24,11 @@ PROCESS_PATTERNS = (
 )
 
 RECENT_PATHS = (
-    "data/experiments/deal_finder/live_runs",
-    "data/experiments/deal_finder/offline_runs",
-    "data/experiments/photo_arbitrage/features",
-    "data/experiments/photo_arbitrage/reports",
-    "data/experiments/photo_arbitrage/candidates",
+    "experiments/old/deal_finder/data/live_runs",
+    "experiments/old/deal_finder/data/offline_runs",
+    "experiments/old/photo_arbitrage/data/features",
+    "experiments/old/photo_arbitrage/data/reports",
+    "experiments/old/photo_arbitrage/data/candidates",
 )
 
 
@@ -140,7 +140,7 @@ def build_snapshot() -> str:
             "```bash",
             "python3 scripts/save_context_snapshot.py",
             "ps -ef | rg 'scripts/main.py|paper_trade|score_sold_unsold_visuals.py|stage_balanced_full_scrape.py'",
-            "find data/experiments -type f -mmin -120 | sort",
+            "find experiments/current experiments/old -path '*/data/*' -type f -mmin -120 | sort",
             "```",
             "",
             AUTO_END,
@@ -171,15 +171,15 @@ Update this section manually when project goals, decisions, or unfinished tasks 
 ### Current Goals
 
 - Continue the Vinted deal-finder work using local historical data and public listing snapshots.
-- Keep deal-finder experiment outputs under `data/experiments/deal_finder/`.
-- Continue the photo-improvement track under `data/experiments/photo_arbitrage/`.
+- Keep deal-finder experiment outputs under `experiments/old/deal_finder/data/`.
+- Continue the photo-improvement track under `experiments/old/photo_arbitrage/data/`.
 - Preserve production data and private configuration files.
 
 ### Active Work
 
 - Normal scraping may be running through `scripts/main.py`.
 - Full item/seller enrichment may be running through `scripts/stage_balanced_full_scrape.py`.
-- Photo visual scoring may be running through `scripts/experiments/photo_arbitrage/score_sold_unsold_visuals.py`.
+- Photo visual scoring may be running through `experiments/old/photo_arbitrage/score_sold_unsold_visuals.py`.
 
 ### Important Safety Rules
 

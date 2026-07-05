@@ -13,7 +13,7 @@ or asks to change that behavior.
 The canonical policy lives in:
 
 ```text
-scripts/experiments/current/basic_5_giant_model/apply_to_live_collector.py
+experiments/current/basic_5_giant_model/apply_to_live_collector.py
 ```
 
 At the time this skill was written, Telegram candidates are:
@@ -21,7 +21,7 @@ At the time this skill was written, Telegram candidates are:
 - one row per unique item
 - item passes at least one normal Basic5 giant-model threshold
 - item price is strictly greater than `30 EUR`
-- already-sent items are deduped through `data/experiments/basic_5_giant_model/live_scoring/telegram_sent_items.csv`
+- already-sent items are deduped through `experiments/current/basic_5_giant_model/data/live_scoring/telegram_sent_items.csv`
 
 The key functions/constants are:
 
@@ -46,7 +46,7 @@ The key functions/constants are:
 1. Read the current policy code and tests:
 
    ```bash
-   sed -n '300,470p' scripts/experiments/current/basic_5_giant_model/apply_to_live_collector.py
+   sed -n '300,470p' experiments/current/basic_5_giant_model/apply_to_live_collector.py
    sed -n '150,230p' tests/test_basic_5_giant_model.py
    ```
 
@@ -59,7 +59,7 @@ The key functions/constants are:
 3. Validate with dry-run or tests before suggesting live send:
 
    ```bash
-   /home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/apply_to_live_collector.py --live-run-dir <live-run-dir> --telegram-dry-run
+   /home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/basic_5_giant_model/apply_to_live_collector.py --live-run-dir <live-run-dir> --telegram-dry-run
    ```
 
 ## Finish With Verification

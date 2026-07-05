@@ -16,7 +16,7 @@ Streamlit dashboard stay on the laptop**.
 Data flow is **one-way**: collector writes CSVs on the laptop → rsync to VPS → scoring/bots read them.
 
 > ⚠️ The repo layout the VPS needs (`experiments/current/...`) only existed once the
-> `scripts/experiments → experiments` restructure was **committed** (commit `1c5b2c3`).
+> experiment-source restructure was **committed** (commit `1c5b2c3`).
 > A fresh clone must be at/after that commit, or paths won't resolve.
 
 ---
@@ -89,7 +89,7 @@ done
 vars at its top (`VPS_HOST`, `VPS_REPO`, `SSH_KEY`), then:
 
 ```bash
-ssh vinted@VPS_IP 'mkdir -p ~/Vinted_New_Version/data/experiments/time_to_sell/live_runs/bin_collector_20260602_214104'
+ssh vinted@VPS_IP 'mkdir -p ~/Vinted_New_Version/experiments/current/time_to_sell/data/live_runs/bin_collector_20260602_214104'
 deploy/sync_to_vps.sh   # first push ≈ 200 MB
 ```
 

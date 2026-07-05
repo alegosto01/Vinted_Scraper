@@ -38,7 +38,7 @@ Common doc targets:
 - Full seller/item scraping usually happens during `final-buy-filter`.
 - Prefer using `scripts/workflow_runner.py` for pipeline commands when possible.
 - Long-running scraper work should be run in a persistent session such as `tmux`.
-- Deal-finder experiments must write under `data/experiments/deal_finder/`.
+- Deal-finder experiments must write under `experiments/old/deal_finder/data/`.
 - Paper-trading must not update production tracking CSVs such as `old_df.csv`, `sold_df.csv`, `unsold_df.csv`, or `big_raw.csv`.
 - Deal-finder offline training uses saved sold/not-sold labels; the 2-day success target is evaluated during paper-trading, not assumed from historical data.
 - Prompts and summaries should frame this as local data science / paper-trading on public listing snapshots; avoid wording that sounds like security testing, evasion, credentials, account automation, or abuse.
@@ -118,7 +118,7 @@ Work only with local project files and public listing snapshots.
 Use the existing project configuration.
 Do not edit private configuration files, credentials, or account settings.
 Do not make purchases, contact sellers, send messages, or perform account actions.
-Save experiment outputs only under data/experiments/deal_finder/ unless I explicitly approve another location.
+Save experiment outputs only under experiments/old/deal_finder/data/ unless I explicitly approve another location.
 ```
 
 Then add the specific task in simple data-analysis terms, such as checking benchmark results, adding an offline experiment, or updating the scheduled paper-trading job.

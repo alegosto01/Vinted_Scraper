@@ -19,7 +19,7 @@ Paper-trade mean:
 Paper-trade script write only under:
 
 ```text
-data/experiments/deal_finder/live_runs/
+experiments/old/deal_finder/data/live_runs/
 ```
 
 No touch:
@@ -35,61 +35,61 @@ No touch:
 Dry-run next collect:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_collect.py --qualified --max-searches 3 --dry-run
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_collect.py --qualified --max-searches 3 --dry-run
 ```
 
 Collect first-page snapshot for qualified search:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_collect.py --qualified --max-searches 3
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_collect.py --qualified --max-searches 3
 ```
 
 Dry-run due recheck:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_recheck.py --due --dry-run
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_recheck.py --due --dry-run
 ```
 
 Run due recheck:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_recheck.py --due
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_recheck.py --due
 ```
 
 Run due recheck only for above-threshold item every hour:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_recheck.py --due --due-hours 1 --above-threshold-only
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_recheck.py --due --due-hours 1 --above-threshold-only
 ```
 
 Run one selected-search collect:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_hourly_runner.py --offline-run data/experiments/deal_finder/offline_runs/offline_20260510_185509 --search nike --search gucci --max-searches 2 --iterations 1 --out-dir data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_hourly_runner.py --offline-run experiments/old/deal_finder/data/offline_runs/offline_20260510_185509 --search nike --search gucci --max-searches 2 --iterations 1 --out-dir experiments/old/deal_finder/data/live_runs/hourly_nike_gucci_scheduled
 ```
 
 Run one all-search, all-model benchmark pass:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_model_benchmark.py --sweep-run data/experiments/deal_finder/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled --enable-live-image-features
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_model_benchmark.py --sweep-run experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir experiments/old/deal_finder/data/live_runs/hourly_all_models_benchmark_scheduled --enable-live-image-features
 ```
 
 Dry-run new six-search strict hourly exp in own folder:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_six_search_strict_hourly.py --dry-run --iterations 1 --out-dir data/experiments/deal_finder/live_runs/six_search_strict_hourly_smoke
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_six_search_strict_hourly.py --dry-run --iterations 1 --out-dir experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_smoke
 ```
 
 Run one real iter of new six-search strict hourly exp:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_six_search_strict_hourly.py --iterations 1 --out-dir data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_six_search_strict_hourly.py --iterations 1 --out-dir experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514
 ```
 
 Make exp-local report + plot for that new run:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/report_six_search_strict_hourly.py --run-dir data/experiments/deal_finder/live_runs/six_search_strict_hourly_20260514
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/report_six_search_strict_hourly.py --run-dir experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_20260514
 ```
 
 Check Nike/Gucci hourly timer:
@@ -181,7 +181,7 @@ All-model benchmark separate from Nike/Gucci runner. Score each first-page snaps
 Write to:
 
 ```text
-data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled/
+experiments/old/deal_finder/data/live_runs/hourly_all_models_benchmark_scheduled/
 ```
 
 Key files:
@@ -209,7 +209,7 @@ New six-search strict hourly exp separate from both Nike/Gucci runner and all-mo
 Write into fresh run folder under:
 
 ```text
-data/experiments/deal_finder/live_runs/six_search_strict_hourly_*/
+experiments/old/deal_finder/data/live_runs/six_search_strict_hourly_*/
 ```
 
 Key files inside new run folder:
@@ -234,7 +234,7 @@ vinted-deal-nike-gucci-hourly.timer
 Write to:
 
 ```text
-data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/
+experiments/old/deal_finder/data/live_runs/hourly_nike_gucci_scheduled/
 ```
 
 As of 2026-05-11, run has live threshold override for `gucci`:
@@ -252,7 +252,7 @@ vinted-deal-all-models-benchmark-hourly.timer
 Write to:
 
 ```text
-data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled/
+experiments/old/deal_finder/data/live_runs/hourly_all_models_benchmark_scheduled/
 ```
 
 As of 2026-05-11 20:26 CEST, timer include live visual image feature.

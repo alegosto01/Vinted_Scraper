@@ -22,7 +22,7 @@ from full_scrape_sold_history import normalize_id
 from full_scraper import Full_Scraper
 
 
-REPORT_DIR = ROOT / "data" / "experiments" / "deal_finder" / "reports"
+REPORT_DIR = ROOT / "experiments" / "old" / "deal_finder" / "data" / "reports"
 DEFAULT_OUTPUT_SUBDIR = "full_scrape_stage_resume"
 DEFAULT_SOLD_MAX_AGE_DAYS_BY_SEARCH = {
     "griffati_donna_all": 21,

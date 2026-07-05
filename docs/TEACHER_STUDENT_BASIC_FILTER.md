@@ -20,16 +20,16 @@ Both objectives train the same student regressor; only the threshold-selection r
 
 The recall-trained first stage from `student_fullvisual_score_20260515_154011` kept ~94% of teacher-approved test items but sent many items into the expensive full-scrape stage that the teacher would later reject. The current goal of the cascade is per-window precision, and the disagreement analysis showed full+visual already does most of the heavy lifting, so the cheap stage was changed to also push for precision rather than recall.
 
-The recall-trained run is preserved at `data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_score_20260515_154011/` for comparison.
+The recall-trained run is preserved at `experiments/old/teacher_student_basic_filter/data/offline_runs/student_fullvisual_score_20260515_154011/` for comparison.
 
 ## Current CLI
 
 ```bash
 # Precision objective (current default for the cascade)
-python scripts/experiments/current/teacher_student_basic_filter/train_student.py --all-searches --objective precision --target 0.95
+python experiments/old/teacher_student_basic_filter/train_student.py --all-searches --objective precision --target 0.95
 
 # Recall objective (the older mode, still supported)
-python scripts/experiments/current/teacher_student_basic_filter/train_student.py --all-searches --objective recall --target 0.95
+python experiments/old/teacher_student_basic_filter/train_student.py --all-searches --objective recall --target 0.95
 ```
 
 The `--objective` flag defaults to `recall` so older invocation lines keep working; the cascade however explicitly defaults to the precision-trained student. The trainer also writes a `target_tradeoff_by_search.csv` over `(0.85, 0.90, 0.95, 0.98)` for precision and `(0.90, 0.95, 0.98, 0.99)` for recall.
@@ -37,7 +37,7 @@ The `--objective` flag defaults to `recall` so older invocation lines keep worki
 Outputs are written under:
 
 ```text
-data/experiments/teacher_student_basic_filter/
+experiments/old/teacher_student_basic_filter/data/
 ```
 
 Main output files:

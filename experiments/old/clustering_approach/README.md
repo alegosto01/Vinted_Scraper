@@ -26,7 +26,7 @@ python3 scripts/clustering_products_from_csv.py --input input.csv --out_dir out
 New code should import from:
 
 ```python
-experiments.clustering_approach
+experiments.old.clustering_approach
 ```
 
 instead of:

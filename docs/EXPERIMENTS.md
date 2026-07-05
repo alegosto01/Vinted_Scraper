@@ -33,7 +33,7 @@ Default model feature policy `snapshot_raw_v1`: train only on fields available i
 ## Safety Rules
 
 - Work on branch `deal-experiment-runner`.
-- Store experiment outputs under `data/experiments/deal_finder/`.
+- Store experiment outputs under `experiments/old/deal_finder/data/`.
 - No edit `.env` or private config files.
 - No delete existing data.
 - No purchases, messages, contact sellers, account actions.
@@ -44,13 +44,13 @@ Default model feature policy `snapshot_raw_v1`: train only on fields available i
 Build normalized datasets:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/build_dataset.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/build_dataset.py --all-searches
 ```
 
 Train and evaluate offline models:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/train_offline.py --all-searches
 ```
 
 If one+ searches pass conservative promotion rule, command auto-starts paper-trading for up to 3 qualified searches.
@@ -58,19 +58,19 @@ If one+ searches pass conservative promotion rule, command auto-starts paper-tra
 Disable that behavior:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches --no-auto-paper-trading
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/train_offline.py --all-searches --no-auto-paper-trading
 ```
 
 Generate report:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/report.py
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/report.py
 ```
 
 Run offline multi-approach sweep:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/model_sweep.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/model_sweep.py --all-searches
 ```
 
 Sweep offline-only. Write recommendation candidates but no start/stop paper-trading timers.
@@ -78,7 +78,7 @@ Sweep offline-only. Write recommendation candidates but no start/stop paper-trad
 Run live all-model benchmark from completed sweep:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/paper_trade_model_benchmark.py --sweep-run data/experiments/deal_finder/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/paper_trade_model_benchmark.py --sweep-run experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252 --all-searches --iterations 1 --out-dir experiments/old/deal_finder/data/live_runs/hourly_all_models_benchmark_scheduled
 ```
 
 Benchmark separate from Nike/Gucci hourly runner. Collect one first-page snapshot per search, score every saved sweep model for same search, store three threshold variants per model: `strict`, `medium`, `loose`.
@@ -88,7 +88,7 @@ Benchmark separate from Nike/Gucci hourly runner. Collect one first-page snapsho
 Normal live scrape also score new rows with current best per-search model from:
 
 ```text
-data/experiments/deal_finder/offline_runs/sweep_20260510_222252/best_by_search.csv
+experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/best_by_search.csv
 ```
 
 Rows get `DealFinderScore`, `DealFinderModel`, `DealFinderScoredAt`, `DealFinderScoreBand`.
@@ -159,13 +159,13 @@ Framework also track:
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --all-searches
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/train_offline.py --all-searches
 ```
 
 Run folder:
 
 ```text
-data/experiments/deal_finder/offline_runs/offline_20260509_153253/
+experiments/old/deal_finder/data/offline_runs/offline_20260509_153253/
 ```
 
 Result:
@@ -182,7 +182,7 @@ Other searches no pass conservative gate. Several got useful threshold precision
 Paper-trading snapshot:
 
 ```text
-data/experiments/deal_finder/live_runs/paper_20260509_153851/
+experiments/old/deal_finder/data/live_runs/paper_20260509_153851/
 ```
 
 Snapshot result:
@@ -201,13 +201,13 @@ Offline result good enough continue paper-trading on `gucci`, but threshold inte
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/train_offline.py --search nike --search gucci --no-auto-paper-trading
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/train_offline.py --search nike --search gucci --no-auto-paper-trading
 ```
 
 Run folder:
 
 ```text
-data/experiments/deal_finder/offline_runs/offline_20260510_185509/
+experiments/old/deal_finder/data/offline_runs/offline_20260510_185509/
 ```
 
 Result:
@@ -219,7 +219,7 @@ Result:
 Duplicate audit:
 
 ```text
-data/experiments/deal_finder/reports/duplicate_audit_latest.md
+experiments/old/deal_finder/data/reports/duplicate_audit_latest.md
 ```
 
 Active `big_raw.csv` files contain small duplicate counts and deduped by experiment dataset builder before training. Largest duplicate counts in archived pipeline/evaluation outputs.
@@ -227,7 +227,7 @@ Active `big_raw.csv` files contain small duplicate counts and deduped by experim
 Paper-trading schedule:
 
 ```text
-data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/
+experiments/old/deal_finder/data/live_runs/hourly_nike_gucci_scheduled/
 ```
 
 First scheduled collection saved 96 Gucci candidates + 96 Nike candidates. Schedule run once per hour via transient user systemd timer `vinted-deal-nike-gucci-hourly.timer`.
@@ -236,7 +236,7 @@ On 2026-05-11, active live run added `gucci` threshold override:
 
 - Offline logistic threshold stay `0.9656`.
 - Live paper-trading threshold now `0.92`.
-- Override stored in `data/experiments/deal_finder/live_runs/hourly_nike_gucci_scheduled/threshold_overrides.json`.
+- Override stored in `experiments/old/deal_finder/data/live_runs/hourly_nike_gucci_scheduled/threshold_overrides.json`.
 - No retrain model or edit model artifacts; only make live candidate selection less strict so can collect usable Gucci above-threshold sample.
 
 ### 2026-05-10 Multi-Approach Offline Sweep
@@ -244,13 +244,13 @@ On 2026-05-11, active live run added `gucci` threshold override:
 Command:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/deal_finder/model_sweep.py --all-searches --out-dir data/experiments/deal_finder/offline_runs/sweep_20260510_222252
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/deal_finder/model_sweep.py --all-searches --out-dir experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252
 ```
 
 Run folder:
 
 ```text
-data/experiments/deal_finder/offline_runs/sweep_20260510_222252/
+experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252/
 ```
 
 Approaches tried:
@@ -298,7 +298,7 @@ Known limitations:
 All-search benchmark runner:
 
 ```text
-scripts/experiments/current/deal_finder/paper_trade_model_benchmark.py
+experiments/old/deal_finder/paper_trade_model_benchmark.py
 ```
 
 Designed for compare live behavior across searches + approaches without change production CSV files. Each selected candidate tracked using:
@@ -318,7 +318,7 @@ Default threshold variants:
 Output folder:
 
 ```text
-data/experiments/deal_finder/live_runs/hourly_all_models_benchmark_scheduled/
+experiments/old/deal_finder/data/live_runs/hourly_all_models_benchmark_scheduled/
 ```
 
 Benchmark record image-based models as skipped when live snapshots no contain same image-derived numeric features used offline. Keep comparison honest while still document model existed in sweep.
@@ -346,7 +346,7 @@ Visual-feature feasibility on 2026-05-11:
 Basic5 giant-model experiment train one global sold/not-sold model across six active searches:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/run.py
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/basic_5_giant_model/run.py
 ```
 
 Evaluate nine Basic5 approach families in one combined `SearchName x label` stratified train/validation/test split. Inputs: `Price`, `Likes`, `Title`, `Brand`, `Size`, plus one-hot `SearchName` features so global model learn search-level differences without using full-scrape or visual fields.
@@ -354,13 +354,13 @@ Evaluate nine Basic5 approach families in one combined `SearchName x label` stra
 Outputs written under:
 
 ```text
-data/experiments/basic_5_giant_model/offline_runs/
+experiments/current/basic_5_giant_model/data/offline_runs/
 ```
 
 First full run:
 
 ```text
-data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/
+experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552/
 ```
 
 Result summary:
@@ -374,15 +374,15 @@ Result summary:
 Per-search threshold follow-up:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/report_per_search_thresholds.py --run-dir data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/basic_5_giant_model/report_per_search_thresholds.py --run-dir experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552
 ```
 
 Outputs:
 
 ```text
-data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_report.md
-data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_metrics.csv
-data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_comparison.csv
+experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_report.md
+experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_metrics.csv
+experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552/per_search_threshold_comparison.csv
 ```
 
 Main finding:
@@ -395,7 +395,7 @@ Main finding:
 Weighted-voting follow-up:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/basic_5_giant_model/report_weighted_voting.py --run-dir data/experiments/basic_5_giant_model/offline_runs/basic_5_giant_20260525_185552
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/basic_5_giant_model/report_weighted_voting.py --run-dir experiments/current/basic_5_giant_model/data/offline_runs/basic_5_giant_20260525_185552
 ```
 
 Best weighted-voting row:

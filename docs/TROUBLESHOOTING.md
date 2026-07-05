@@ -13,7 +13,7 @@ ps -ef | rg 'scripts/main.py|workflow_runner.py main|daily_eventual_sales|python
 Then inspect the log:
 
 ```bash
-sed -n '1,200p' data/simple_scrape/eventual_sale.log
+sed -n '1,200p' runtime/logs/simple_scrape/eventual_sale.log
 ```
 
 Likely places to check:
@@ -123,4 +123,3 @@ Run Python compile checks:
 ```bash
 python3 -m py_compile scripts/simple_scraper.py scripts/scraping_options.py scripts/daily_eventual_sales.py scripts/workflow_runner.py
 ```
-

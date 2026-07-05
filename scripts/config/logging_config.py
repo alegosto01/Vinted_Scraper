@@ -50,7 +50,7 @@ class OnlyEventualSalesFilter(logging.Filter):
 
 
 def _eventual_sales_log_path() -> Path:
-    path = Path(str(settings.paths.simple_scrape_dir)) / EVENTUAL_SALES_LOG_FILENAME
+    path = settings.paths.eventual_sales_log_path
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

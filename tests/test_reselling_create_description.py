@@ -11,7 +11,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.reselling_process.create_description.generate import (  # noqa: E402
+from experiments.old.reselling_process.create_description.generate import (  # noqa: E402
     build_prompt_characteristics_block,
     build_description_payload,
     build_gemini_generation_config,
@@ -301,7 +301,7 @@ class ResellingCreateDescriptionTests(unittest.TestCase):
         self.assertEqual(config["maxOutputTokens"], 768)
         self.assertEqual(config["thinkingConfig"], {"thinkingBudget": 0})
 
-    @mock.patch("experiments.reselling_process.create_description.generate.generate_description_with_gemini_api")
+    @mock.patch("experiments.old.reselling_process.create_description.generate.generate_description_with_gemini_api")
     def test_build_description_payload_uses_gemini_backend(self, mock_generate_gemini):
         query = pd.Series(
             {
@@ -354,7 +354,7 @@ class ResellingCreateDescriptionTests(unittest.TestCase):
         self.assertEqual(payload["model_name"], "gemini-3.1-pro-preview")
         mock_generate_gemini.assert_called_once()
 
-    @mock.patch("experiments.reselling_process.create_description.generate.generate_description_with_gemini_api")
+    @mock.patch("experiments.old.reselling_process.create_description.generate.generate_description_with_gemini_api")
     def test_build_description_payload_falls_back_to_available_gemini_model_on_quota(self, mock_generate_gemini):
         query = pd.Series(
             {

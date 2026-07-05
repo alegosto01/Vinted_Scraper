@@ -98,6 +98,15 @@ data/tmp_single_checks/
 data/recent_sold_truth_check_*/
 data/experiments/
 
+# Runtime logs, process IDs, and local archives
+runtime/logs/
+runtime/pids/
+runtime/archive/
+runtime/**/*.log
+runtime/**/*.jsonl
+runtime/**/*.pid
+*.pid
+
 # Keep config-like data files versioned
 !data/searches.yaml
 !data/brand_ids.csv
@@ -121,7 +130,6 @@ replacements.txt
 .claude/settings.local.json
 scripts/telegram_scripts/bot_env.env
 
-# Graphify branch: keep personal notes and generated graph state local.
-wiki/
+# Graphify branch: keep generated graph state local.
 docs/full_experiment_basic_visual_model.md
 graphify-out/

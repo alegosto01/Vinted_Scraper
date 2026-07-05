@@ -11,7 +11,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from experiments.benchmark_basic_to_full.report_live_score_distributions import (
+from experiments.old.benchmark_basic_to_full.report_live_score_distributions import (
     label_live_cohort,
     unique_tracked_items,
 )

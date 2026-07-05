@@ -11,14 +11,14 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.basic_5_giant_model import run as giant
-from experiments.basic_5_giant_model import apply_to_live_collector
+from experiments.current.basic_5_giant_model import run as giant
+from experiments.current.basic_5_giant_model import apply_to_live_collector
 from experiments.current.full_scrape_giant_model import full_scrape_features
 from experiments.old.full_scrape_reranker import full_scrape_reranker
 from experiments.current.basic_5_giant_model import title_features
-from experiments.basic_5_giant_model import report_per_search_thresholds
-from experiments.basic_5_giant_model import report_weighted_voting
-from experiments.deal_finder import model_sweep
+from experiments.current.basic_5_giant_model import report_per_search_thresholds
+from experiments.current.basic_5_giant_model import report_weighted_voting
+from experiments.old.deal_finder import model_sweep
 
 
 class Basic5GiantModelTests(unittest.TestCase):

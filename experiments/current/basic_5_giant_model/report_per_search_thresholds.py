@@ -21,8 +21,8 @@ from experiments.current.basic_5_giant_model.paths import (  # noqa: E402
     assert_experiment_path,
     write_json,
 )
-from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
-from experiments.deal_finder.modeling import TARGET_COL, choose_threshold  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder import model_sweep as base_sweep  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder.modeling import TARGET_COL, choose_threshold  # noqa: E402
 
 
 SCORE_PREFIX = "score__"

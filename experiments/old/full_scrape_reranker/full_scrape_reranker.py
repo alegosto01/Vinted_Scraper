@@ -31,7 +31,7 @@ from experiments.old.full_scrape_reranker.paths import (  # noqa: E402
     run_id,
     write_json,
 )
-from experiments.current.full_scrape_giant_model.full_scrape_features import (  # noqa: E402
+from experiments.old.full_scrape_reranker._deps.full_scrape_giant_model.full_scrape_features import (  # noqa: E402
     THRESHOLD_PREFIX,
     TITLE_BINARY_FEATURES,
     TITLE_NUMERIC_FEATURES,

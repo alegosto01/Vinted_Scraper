@@ -26,8 +26,8 @@ from experiments.current.basic_5_giant_model.report_per_search_thresholds import
     score_columns,
     threshold_is_qualified,
 )
-from experiments.deal_finder import model_sweep as base_sweep  # noqa: E402
-from experiments.deal_finder.modeling import TARGET_COL, choose_threshold  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder import model_sweep as base_sweep  # noqa: E402
+from experiments.current.basic_5_giant_model._deps.deal_finder.modeling import TARGET_COL, choose_threshold  # noqa: E402
 
 
 ENSEMBLE_PREFIX = "ensemble__"

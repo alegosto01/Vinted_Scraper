@@ -183,7 +183,7 @@ sold labels, so precision is only meaningful on `unique_tracked`.
 Example numbers above from:
 
 ```text
-data/experiments/basic_plus_visual/live_runs/basic_plus_visual_live_20260519_051311/
+experiments/old/basic_plus_visual/data/live_runs/basic_plus_visual_live_20260519_051311/
 ```
 
 generated `2026-05-20 07:24 CEST`.

@@ -64,8 +64,7 @@ python3 scripts/workflow_runner.py evaluate --folder ps4 --use_eventual_sales
 If eventual-sale checking seems stuck, inspect:
 
 ```text
-data/simple_scrape/eventual_sale.log
+runtime/logs/simple_scrape/eventual_sale.log
 ```
 
 A previous bug happened when `Price` had pandas string dtype and the code tried to write a float price into it. The code now casts mutable status/price columns to object before updating them.
-

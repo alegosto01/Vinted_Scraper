@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,12 +13,18 @@ import streamlit.components.v1 as components
 # ── paths ─────────────────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent
-SIMPLE_SCRAPE = ROOT / "data" / "simple_scrape"
+SCRIPTS_DIR = ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
-SCRAPE_LOG = SIMPLE_SCRAPE / "logs" / "usual_live_scrape.log"
-EVENTUAL_LOG = SIMPLE_SCRAPE / "eventual_sale.log"
+from config.project_config import settings
 
-CASCADE_RUN = ROOT / "data" / "experiments" / "benchmark_basic_to_full" / "live_runs" / "cascade_live"
+SIMPLE_SCRAPE = settings.paths.simple_scrape_dir
+
+SCRAPE_LOG = settings.paths.scraper_log_path
+EVENTUAL_LOG = settings.paths.eventual_sales_log_path
+
+CASCADE_RUN = ROOT / "experiments" / "old" / "benchmark_basic_to_full" / "data" / "live_runs" / "cascade_live"
 CASCADE_TRACKED = CASCADE_RUN / "tracked_items.csv"
 CASCADE_STATUS = CASCADE_RUN / "latest_status.json"
 CASCADE_LOG = CASCADE_RUN / "nohup.log"
@@ -25,8 +32,8 @@ CASCADE_LOOP_LOG = CASCADE_RUN / "cascade_loop.log"
 CASCADE_PID = CASCADE_RUN / "runner.pid"
 CASCADE_MANIFEST = CASCADE_RUN / "manifest.json"
 
-CASCADE_RESULTS_RUNS = ROOT / "data" / "experiments" / "benchmark_basic_to_full" / "live_runs"
-TIME_TO_SELL_LIVE_RUNS = ROOT / "data" / "experiments" / "time_to_sell" / "live_runs"
+CASCADE_RESULTS_RUNS = ROOT / "experiments" / "old" / "benchmark_basic_to_full" / "data" / "live_runs"
+TIME_TO_SELL_LIVE_RUNS = ROOT / "experiments" / "current" / "time_to_sell" / "data" / "live_runs"
 
 TELEGRAM_EVENTS = ROOT / "data" / "telegram_implementation" / "events.jsonl"
 TELEGRAM_CACHE = ROOT / "data" / "telegram_implementation" / "pending_items"
@@ -888,15 +895,15 @@ show_sold_only = st.sidebar.toggle("Eventual sales: sold only", value=True)
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-PHOTO_DATASET = ROOT / "data" / "experiments" / "photo_arbitrage" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
-PHOTO_LABELS = ROOT / "data" / "experiments" / "photo_arbitrage" / "labels" / "photo_quality_labels.csv"
+PHOTO_DATASET = ROOT / "experiments" / "old" / "photo_arbitrage" / "data" / "features" / "sold_unsold_visuals_20260514_full" / "combined_scored.csv"
+PHOTO_LABELS = ROOT / "experiments" / "old" / "photo_arbitrage" / "data" / "labels" / "photo_quality_labels.csv"
 
 GIANT_MODEL_LIVE_RUNS = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "live_scoring"
-VISUAL_GIANT_LIVE_RUNS = ROOT / "data" / "experiments" / "giant_basic_visual" / "live_scoring"
-FULLSCRAPE_GIANT_LIVE_RUNS = ROOT / "data" / "experiments" / "full_scrape_giant_model" / "live_runs"
+VISUAL_GIANT_LIVE_RUNS = ROOT / "experiments" / "current" / "giant_basic_visual" / "data" / "live_scoring"
+FULLSCRAPE_GIANT_LIVE_RUNS = ROOT / "experiments" / "current" / "full_scrape_giant_model" / "data" / "live_runs"
 BASIC5_OFFLINE_RUNS = ROOT / "experiments" / "current" / "basic_5_giant_model" / "data" / "offline_runs"
-VISUAL_OFFLINE_RUNS = ROOT / "data" / "experiments" / "giant_basic_visual" / "offline_runs"
-FULLSCRAPE_OFFLINE_RUNS = ROOT / "data" / "experiments" / "full_scrape_giant_model" / "offline_runs"
+VISUAL_OFFLINE_RUNS = ROOT / "experiments" / "current" / "giant_basic_visual" / "data" / "offline_runs"
+FULLSCRAPE_OFFLINE_RUNS = ROOT / "experiments" / "current" / "full_scrape_giant_model" / "data" / "offline_runs"
 
 tab_tts, tab_basic5, tab_visual, tab_fullscrape, tab_threshcompare, tab_eventual, tab_telegram, tab_photo = st.tabs([
     "Time-to-Sell Collector",

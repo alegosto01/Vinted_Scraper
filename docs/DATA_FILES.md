@@ -8,6 +8,15 @@ Example:
 data/simple_scrape/ps4/
 ```
 
+Runtime logs, JSONL telemetry, PID files, and local archives do not belong in
+`data/simple_scrape/`. They live under `runtime/`:
+
+```text
+runtime/logs/simple_scrape/
+runtime/pids/
+runtime/archive/
+```
+
 ## Core CSV Files
 
 | File | Meaning |

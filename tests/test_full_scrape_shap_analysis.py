@@ -10,7 +10,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.full_scrape_model import shap_analysis
+from experiments.old.full_scrape_model import shap_analysis
 
 
 class FullScrapeShapAnalysisTests(unittest.TestCase):

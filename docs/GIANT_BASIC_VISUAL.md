@@ -15,26 +15,26 @@ Hard rules:
 Package:
 
 ```text
-scripts/experiments/current/giant_basic_visual/
+experiments/current/giant_basic_visual/
 ```
 
 Outputs:
 
 ```text
-data/experiments/giant_basic_visual/
+experiments/current/giant_basic_visual/data/
 ```
 
 Offline smoke run:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/giant_basic_visual/run.py --limit-rows 50
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/run.py --limit-rows 50
 ```
 
 Live shadow run:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/giant_basic_visual/apply_to_live_collector.py \
-  --live-run-dir data/experiments/time_to_sell/live_runs/<run> \
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/apply_to_live_collector.py \
+  --live-run-dir experiments/current/time_to_sell/data/live_runs/<run> \
   --shadow-only
 ```
 

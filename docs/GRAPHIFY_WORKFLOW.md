@@ -38,7 +38,7 @@ and fall back to `rg` only if the graph is stale or not specific enough.
 ## What Not To Do
 
 - Do not start by reading `graphify-out/GRAPH_REPORT.md`; it is large.
-- Do not ask the assistant to scan `data/`, `wiki/`, or `graphify-out/` unless
+- Do not ask the assistant to scan `data/`, `runtime/`, or `graphify-out/` unless
   that is exactly the task.
 - Do not use Graphify for current live process status; use process/log commands
   for that.

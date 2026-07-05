@@ -14,12 +14,12 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from experiments.basic_5_giant_model import apply_to_live_collector as basic5_live
-from experiments.basic_5_giant_model import run as basic5_run
-from experiments.deal_finder.modeling import TARGET_COL
-from experiments.giant_basic_visual import apply_to_live_collector as visual_live
-from experiments.giant_basic_visual import features as visual_features
-from experiments.giant_basic_visual import run as visual_run
+from experiments.current.basic_5_giant_model import apply_to_live_collector as basic5_live
+from experiments.current.basic_5_giant_model import run as basic5_run
+from experiments.old.deal_finder.modeling import TARGET_COL
+from experiments.current.giant_basic_visual import apply_to_live_collector as visual_live
+from experiments.current.giant_basic_visual import features as visual_features
+from experiments.current.giant_basic_visual import run as visual_run
 
 
 def make_image(path: Path, color: tuple[int, int, int]) -> Path:

@@ -27,13 +27,12 @@ This project has a knowledge graph at graphify-out/ with god nodes, community st
 
 When the user types `/graphify`, use Graphify before doing anything else. If a dedicated `skill` tool is available, invoke it with `skill: "graphify"`; otherwise run the `graphify` CLI directly.
 
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify.
 
 ## Vinted token-saving rules
 
 - Use `docs/AI_CONTEXT.md` as the compact project map for future sessions.
-- Do not scan `data/`, `wiki/`, or `graphify-out/` unless the user explicitly asks.
+- Do not scan `data/`, `runtime/`, or `graphify-out/` unless the user explicitly asks.
 - Prefer `rg` or Graphify queries over opening broad documentation sets.
 - Keep generated graph files local; this branch tracks the Graphify setup, not the generated graph payload.

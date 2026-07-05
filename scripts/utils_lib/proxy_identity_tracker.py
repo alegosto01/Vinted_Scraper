@@ -46,7 +46,7 @@ def proxy_identity_stats_path(path: str | Path | None = None) -> Path:
         else:
             from config.project_config import settings
 
-            resolved = Path(str(settings.paths.simple_scrape_dir)) / "proxy_identity_stats.jsonl"
+            resolved = settings.paths.proxy_identity_stats_path
     resolved.parent.mkdir(parents=True, exist_ok=True)
     return resolved
 

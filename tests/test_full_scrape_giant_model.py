@@ -13,7 +13,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 from experiments.current.full_scrape_giant_model import model_zoo as mz
 from experiments.current.full_scrape_giant_model import metrics as fm
 from experiments.current.full_scrape_giant_model import image_filter as imf
-from experiments.deal_finder.modeling import TARGET_COL, score_with_model
+from experiments.old.deal_finder.modeling import TARGET_COL, score_with_model
 
 
 def _synthetic(n=240, seed=0):

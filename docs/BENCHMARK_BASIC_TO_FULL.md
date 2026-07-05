@@ -14,7 +14,7 @@ Experiment test two-stage deal rank cascade:
 Experiment isolated under:
 
 ```text
-data/experiments/benchmark_basic_to_full/
+experiments/old/benchmark_basic_to_full/data/
 ```
 
 No write to production `old_df.csv`, `sold_df.csv`, `unsold_df.csv`, or normal full-scrape files.
@@ -24,19 +24,19 @@ No write to production `old_df.csv`, `sold_df.csv`, `unsold_df.csv`, or normal f
 Default model source:
 
 ```text
-data/experiments/full_scrape_model/offline_runs/sold_status_feature_modalities_20260515_full_visual/
+experiments/old/full_scrape_model/data/offline_runs/sold_status_feature_modalities_20260515_full_visual/
 ```
 
 Default first-stage student source now precision-trained run:
 
 ```text
-data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_score_precision_20260516_222723/
+experiments/old/teacher_student_basic_filter/data/offline_runs/student_fullvisual_score_precision_20260516_222723/
 ```
 
 Prior recall-trained student kept for compare at:
 
 ```text
-data/experiments/teacher_student_basic_filter/offline_runs/student_fullvisual_score_20260515_154011/
+experiments/old/teacher_student_basic_filter/data/offline_runs/student_fullvisual_score_20260515_154011/
 ```
 
 Cascade use:
@@ -120,37 +120,37 @@ Report also track:
 Dry-run plan:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py collect-once --dry-run --out-dir data/experiments/benchmark_basic_to_full/live_runs/dry_run_plan
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py collect-once --dry-run --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/dry_run_plan
 ```
 
 Dry-run old strict basic plan for compare:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py collect-once --dry-run --stage1-source basic_5 --out-dir data/experiments/benchmark_basic_to_full/live_runs/dry_run_old_basic_plan
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py collect-once --dry-run --stage1-source basic_5 --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/dry_run_old_basic_plan
 ```
 
 Run one collect pass:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py collect-once --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py collect-once --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live
 ```
 
 Recheck due items:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py recheck-due --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py recheck-due --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live
 ```
 
 Gen report:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py report --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py report --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live
 ```
 
 Plot live stage-1 and stage-2 score distributions for sold vs unsold items matured through checkpoint:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/report_live_score_distributions.py --run-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --window-hours 24
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/report_live_score_distributions.py --run-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live --window-hours 24
 ```
 
 Distribution report write single figure with both model score columns and their effective per-search thresholds under selected run `reports/` folder. Use `--all-observed` only when "not sold yet" rows acceptable instead of matured checkpoint cohort.
@@ -158,25 +158,25 @@ Distribution report write single figure with both model score columns and their 
 Run scheduled loop:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --collect-every-hours 1
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live --collect-every-hours 1
 ```
 
 Drain existing live run without collect new items, stop recheck after `72h` checkpoint filled:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --recheck-only --max-recheck-age-hours 72
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live --recheck-only --max-recheck-age-hours 72
 ```
 
 Default `run-loop` now use teacher-student first stage with precision objective. To restart with precision student explicitly:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live --student-run student_fullvisual_score_precision_20260516_222723 --student-objective precision --student-precision-target 0.95 --collect-every-hours 1
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live --student-run student_fullvisual_score_precision_20260516_222723 --student-objective precision --student-precision-target 0.95 --collect-every-hours 1
 ```
 
 Compare with older recall-targeted first stage:
 
 ```bash
-/home/ale/miniconda3/envs/vinted_scraper/bin/python scripts/experiments/current/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir data/experiments/benchmark_basic_to_full/live_runs/cascade_live_recall_smoke --student-run student_fullvisual_score_20260515_154011 --student-objective recall --student-recall-target 0.95 --collect-every-hours 1
+/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/old/benchmark_basic_to_full/cascade_runner.py run-loop --out-dir experiments/old/benchmark_basic_to_full/data/live_runs/cascade_live_recall_smoke --student-run student_fullvisual_score_20260515_154011 --student-objective recall --student-recall-target 0.95 --collect-every-hours 1
 ```
 
 ## Notes

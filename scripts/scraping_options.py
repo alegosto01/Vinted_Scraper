@@ -708,7 +708,7 @@ def scrape_specific_items_parallel(
                 elif mode == "online":
                     db_path_search = os.path.join(output_folder, folder_name, "index.sqlite")
                     try:
-                        from experiments.clustering_approach.vinted_pipeline_incremental import process_new_df
+                        from experiments.old.clustering_approach.vinted_pipeline_incremental import process_new_df
 
                         assigned_df = process_new_df(
                             new_df,
@@ -751,7 +751,7 @@ def scrape_specific_items_parallel(
 
         # ── Experiment tracker ──────────────────────────────────────────────
         try:
-            from experiments.tracking.db import init_db, log_scraper_iteration
+            from experiments.old.tracking.db import init_db, log_scraper_iteration
             init_db()
             events = []
             for s in summaries:

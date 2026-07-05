@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 
 
-DEFAULT_MODEL_SWEEP_RUN = Path("data/experiments/deal_finder/offline_runs/sweep_20260510_222252")
+DEFAULT_MODEL_SWEEP_RUN = Path("experiments/old/deal_finder/data/offline_runs/sweep_20260510_222252")
 DEFAULT_LOW_SCORE_THRESHOLD = 0.05
 DEFAULT_HIGH_SCORE_THRESHOLD = 0.95
 FULL_SCRAPE_DIR_NAME = "full_scrape"
@@ -391,7 +391,7 @@ class Full_Scraper(Scraper):
         search_name = str(row.get("search_name"))
         approach = str(row.get("approach"))
         seed = int(float(row.get("seed", 42)))
-        return Path("data/experiments/deal_finder/models") / f"{prefix}_{search_name}_{approach}_seed{seed}_metadata.json"
+        return Path("experiments/old/deal_finder/data/models") / f"{prefix}_{search_name}_{approach}_seed{seed}_metadata.json"
 
     def load_best_model_metadata_for_search(
         self,
@@ -440,8 +440,8 @@ class Full_Scraper(Scraper):
             return out
 
         try:
-            from experiments.deal_finder.model_sweep import add_engineered_snapshot_features, add_image_features
-            from experiments.deal_finder.modeling import load_pickle, score_with_model
+            from experiments.old.deal_finder.model_sweep import add_engineered_snapshot_features, add_image_features
+            from experiments.old.deal_finder.modeling import load_pickle, score_with_model
 
             work = out.copy()
             if "SearchName" not in work.columns:

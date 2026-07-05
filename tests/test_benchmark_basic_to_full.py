@@ -12,7 +12,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from experiments.benchmark_basic_to_full.cascade_runner import (
+from experiments.old.benchmark_basic_to_full.cascade_runner import (
     bool_series,
     due_recheck_mask,
     evaluated_col,

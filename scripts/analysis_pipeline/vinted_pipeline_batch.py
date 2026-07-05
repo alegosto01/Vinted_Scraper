@@ -11,7 +11,7 @@ for path in (SCRIPTS_DIR, ROOT):
 
 from analysis_pipeline._legacy_redirect import load_legacy_module, run_legacy_module
 
-load_legacy_module(globals(), "experiments.clustering_approach.vinted_pipeline_batch")
+load_legacy_module(globals(), "experiments.old.clustering_approach.vinted_pipeline_batch")
 
 if __name__ == "__main__":
-    run_legacy_module("experiments.clustering_approach.vinted_pipeline_batch")
+    run_legacy_module("experiments.old.clustering_approach.vinted_pipeline_batch")
