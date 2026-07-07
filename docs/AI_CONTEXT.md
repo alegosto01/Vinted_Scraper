@@ -20,8 +20,9 @@ See `docs/GRAPHIFY_WORKFLOW.md` for the practical low-token workflow.
 
 - Codex: `AGENTS.md` and `.codex/hooks.json`
 - Claude Code: `CLAUDE.md` and `.claude/settings.json`
-- Kimi Code: `.kimi/skills/graphify/SKILL.md`
-- Repo Codex skills: `.agents/skills/check-live-runs/`,
+- Kimi Code: `.kimi/skills/graphify/SKILL.md` and `.kimi/skills/ponytail/SKILL.md`
+- Repo Codex skills: `.agents/skills/ponytail/`,
+  `.agents/skills/check-live-runs/`,
   `.agents/skills/giant-model-results/`, `.agents/skills/telegram-policy/`
 - Read-only automation prompts: `docs/CODEX_AUTOMATIONS.md`
 
@@ -62,3 +63,4 @@ Do not scan these unless the user asks for them explicitly:
 - generated CSV, SQLite, image, model, and report artifacts
 
 For project rules and common commands, prefer `docs/CODEX_WORKFLOW.md`.
+For minimal coding behavior, see `docs/PONYTAIL_WORKFLOW.md`.

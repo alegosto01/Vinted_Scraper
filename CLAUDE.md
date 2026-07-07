@@ -64,6 +64,13 @@ Project skills live in `.claude/skills/`:
 - `graphify-refresh` — rebuild the knowledge graph after code edits (`graphify update . --force`).
 - `check-runs` — read-only summary of running scrapers, cascade/paper-trade loops, and timers.
 
+### Always-on skills (SessionStart hooks)
+
+Two skills are **auto-activated on every chat** via hooks in `.claude/settings.json` — no trigger words or manual invocation needed:
+
+- **Ponytail** (coding minimalism) — hook at `.claude/hooks/ponytail/ponytail-activate.js`. Always apply the Ponytail ladder before writing code.
+- **Caveman `full`** (compressed communication) — hook at `.claude/hooks/caveman/caveman-activate.js`, pinned by `.caveman.json` (`defaultMode: "full"`). Override levels with `/caveman lite|ultra`, disable with `/caveman off`.
+
 ## How To Work In This Repo
 
 Default working style for AI sessions:

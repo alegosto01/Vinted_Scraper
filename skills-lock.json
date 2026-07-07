@@ -42,6 +42,12 @@
       "sourceType": "github",
       "skillPath": "skills/caveman-stats/SKILL.md",
       "computedHash": "331f720e2fa97b68cacdae44384878071e8cac6013479edea68f4c8eca308852"
+    },
+    "ponytail": {
+      "source": "DietrichGebert/ponytail",
+      "sourceType": "github",
+      "skillPath": "skills/ponytail/SKILL.md",
+      "computedHash": "99b9f8357dd4a2194fe51829fac3e83614730ae660d842ed57f4b15f07246b1e"
     }
   }
 }

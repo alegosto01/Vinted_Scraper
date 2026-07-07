@@ -36,3 +36,19 @@ When the user types `/graphify`, use Graphify before doing anything else. If a d
 - Do not scan `data/`, `runtime/`, or `graphify-out/` unless the user explicitly asks.
 - Prefer `rg` or Graphify queries over opening broad documentation sets.
 - Keep generated graph files local; this branch tracks the Graphify setup, not the generated graph payload.
+
+## Ponytail coding rule — ALWAYS ACTIVE
+
+Ponytail-style minimalism is **auto-activated on every session** via the `SessionStart` hook at `.claude/hooks/ponytail/ponytail-activate.js`. No trigger words needed.
+
+Always use Ponytail for coding work: first ask whether the change needs to exist, then reuse existing repo code, stdlib, platform features, or installed dependencies before adding new code. Prefer deletion, boring fixes, and the fewest files possible. Do not simplify away trust-boundary validation, data-loss protection, security, accessibility, explicit user requirements, or the Graphify-first rule.
+
+Source: `.agents/skills/ponytail/SKILL.md`.
+
+## Caveman communication mode — ALWAYS ACTIVE
+
+Caveman `full` mode is **auto-activated on every session** via the `SessionStart` hook at `.claude/hooks/caveman/caveman-activate.js`. The repo-local config `.caveman.json` pins the default to `full`, overriding any user-level config.
+
+To switch levels: `/caveman lite|full|ultra`. To disable: `/caveman off` or "normal mode".
+
+Source: `.agents/skills/caveman/SKILL.md`.
