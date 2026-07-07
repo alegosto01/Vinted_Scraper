@@ -66,6 +66,17 @@ class TelegramImplementationTests(unittest.TestCase):
         self.assertIsInstance(copy_button.copy_text, CopyTextButton)
         self.assertEqual(copy_button.copy_text.text, "Full generated description")
 
+    def test_description_actions_keyboard_omits_invalid_copy_text(self):
+        long_description = "x" * 257
+
+        empty_keyboard = build_description_actions_keyboard("abc123", "")
+        long_keyboard = build_description_actions_keyboard("abc123", long_description)
+
+        self.assertEqual(len(empty_keyboard.inline_keyboard[0]), 1)
+        self.assertEqual(empty_keyboard.inline_keyboard[0][0].text, "Regenerate")
+        self.assertEqual(len(long_keyboard.inline_keyboard[0]), 1)
+        self.assertEqual(long_keyboard.inline_keyboard[0][0].text, "Regenerate")
+
     def test_extract_primary_image_url_from_stringified_list(self):
         raw_value = "['https://images1.vinted.net/a.webp', 'https://images1.vinted.net/b.webp']"
 

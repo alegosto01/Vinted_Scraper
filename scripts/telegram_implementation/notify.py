@@ -22,6 +22,7 @@ from telegram_implementation.event_log import log_event
 from telegram_implementation.item_cache import cache_item
 
 CAPTION_LIMIT = 1024
+COPY_TEXT_LIMIT = 256
 
 
 def extract_primary_image_url(image_value: object) -> str | None:
@@ -122,10 +123,11 @@ def build_generate_keyboard(cache_key: str) -> InlineKeyboardMarkup:
 
 
 def build_description_actions_keyboard(cache_key: str, description: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Regenerate", callback_data=f"regenerate_description:{cache_key}"),
-        InlineKeyboardButton("Copy", copy_text=CopyTextButton(description)),
-    ]])
+    buttons = [InlineKeyboardButton("Regenerate", callback_data=f"regenerate_description:{cache_key}")]
+    copy_text = description.strip()
+    if 0 < len(copy_text) <= COPY_TEXT_LIMIT:
+        buttons.append(InlineKeyboardButton("Copy", copy_text=CopyTextButton(copy_text)))
+    return InlineKeyboardMarkup([buttons])
 
 
 # ── Accountability keyboards ─────────────────────────────────────────────────
