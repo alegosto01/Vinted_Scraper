@@ -206,6 +206,9 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs every request URL at INFO, which includes the bot token
+    # (.../bot<token>/getMe). Silence it so the token never hits the logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     app = build_application()
     LOGGER.info("Bot starting — polling…")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
