@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import html
 import json
 import logging
+import os
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -30,6 +34,26 @@ from telegram_implementation.notify import build_caption, extract_primary_image_
 LOGGER = logging.getLogger(__name__)
 
 _TRACKER_PATH = settings.paths.data_dir / "telegram_implementation" / "accountability_tracker.csv"
+# Cross-process advisory lock. The bot AND the scoring/sender service both mutate
+# the tracker CSV; without this they interleave read-modify-write and erase each
+# other's rows (e.g. bought items reverting to recommended / vanishing).
+_TRACKER_LOCK_PATH = _TRACKER_PATH.with_suffix(".lock")
+
+
+@contextmanager
+def _tracker_lock():
+    """Hold an exclusive OS lock across a whole read-modify-write of the tracker.
+
+    fcntl.flock is per-open-fd, so this is NOT reentrant — callers must not nest it.
+    """
+    _TRACKER_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(_TRACKER_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o664)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 _TRACKER_COLUMNS = [
     "cache_key", "dataid", "title", "brand", "size", "condition",
@@ -55,7 +79,16 @@ def _ensure_tracker() -> pd.DataFrame:
 
 
 def _save_tracker(df: pd.DataFrame) -> None:
-    df.to_csv(_TRACKER_PATH, index=False)
+    # Atomic: write a temp file then os.replace, so a mid-write kill (RuntimeMaxSec/
+    # OOM) can never truncate the tracker and drop rows.
+    fd, tmp = tempfile.mkstemp(dir=str(_TRACKER_PATH.parent), suffix=".tmp")
+    os.close(fd)
+    try:
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, _TRACKER_PATH)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def _normalize_value(value: object) -> str:
@@ -68,13 +101,7 @@ def _normalize_value(value: object) -> str:
 
 def add_item(item: Mapping[str, Any], status: str = "recommended") -> str:
     """Add a new item to the tracker. Returns cache_key."""
-    df = _ensure_tracker()
     cache_key = cache_item(item)
-
-    if cache_key in df["cache_key"].values:
-        LOGGER.info("Item %s already in tracker", cache_key)
-        return cache_key
-
     row = {
         "cache_key": cache_key,
         "dataid": _normalize_value(item.get("Dataid") or item.get("dataid") or item.get("item_id")),
@@ -100,9 +127,13 @@ def add_item(item: Mapping[str, Any], status: str = "recommended") -> str:
         "message_ids": "{}",
     }
 
-    new_df = pd.DataFrame([row])
-    df = pd.concat([df, new_df], ignore_index=True)
-    _save_tracker(df)
+    with _tracker_lock():
+        df = _ensure_tracker()
+        if cache_key in df["cache_key"].values:
+            LOGGER.info("Item %s already in tracker", cache_key)
+            return cache_key
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        _save_tracker(df)
 
     log_event("accountability_item_added", item=item, cache_key=cache_key,
               details={"status": status})
@@ -120,18 +151,19 @@ def get_item(cache_key: str) -> dict[str, Any] | None:
 
 def update_item(cache_key: str, **fields: Any) -> bool:
     """Update fields for an existing tracker row. Returns True if found."""
-    df = _ensure_tracker()
-    mask = df["cache_key"] == cache_key
-    if not mask.any():
-        return False
+    with _tracker_lock():
+        df = _ensure_tracker()
+        mask = df["cache_key"] == cache_key
+        if not mask.any():
+            return False
 
-    for col, val in fields.items():
-        if col not in df.columns:
-            LOGGER.warning("Unknown tracker column: %s", col)
-            continue
-        df.loc[mask, col] = _normalize_value(val)
+        for col, val in fields.items():
+            if col not in df.columns:
+                LOGGER.warning("Unknown tracker column: %s", col)
+                continue
+            df.loc[mask, col] = _normalize_value(val)
 
-    _save_tracker(df)
+        _save_tracker(df)
     return True
 
 
@@ -146,12 +178,13 @@ def transition(cache_key: str, new_status: str, **extra_fields: Any) -> bool:
 
 def delete_item(cache_key: str) -> bool:
     """Remove item from tracker entirely. Returns True if found."""
-    df = _ensure_tracker()
-    mask = df["cache_key"] == cache_key
-    if not mask.any():
-        return False
-    df = df[~mask].reset_index(drop=True)
-    _save_tracker(df)
+    with _tracker_lock():
+        df = _ensure_tracker()
+        mask = df["cache_key"] == cache_key
+        if not mask.any():
+            return False
+        df = df[~mask].reset_index(drop=True)
+        _save_tracker(df)
     log_event("accountability_item_deleted", cache_key=cache_key)
     return True
 
