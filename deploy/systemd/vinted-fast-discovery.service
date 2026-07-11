@@ -1,0 +1,24 @@
+[Unit]
+Description=Vinted fast newest-first discovery + score-once + observation log (Telegram-sending)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Vinted_New_Version
+# Replaces vinted-visual-scoring: discovers newest items every 15 min, scores each
+# NEW item once with the live-trained visual model, sends passing items once, and
+# logs every observation (likes/score vs dt) for the velocity dataset. Model dir +
+# per-search thresholds default to the production live_trained dir. Drop --send for
+# a dry run (no Telegram). Exact proxy-request count is written to
+# data/fast_discovery/requests.csv (+ requests_total.txt).
+ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/fast_discovery_loop.py --loop --interval 15 --pages 1 --send
+Restart=always
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+MemoryMax=4G
+MemorySwapMax=1G
+RuntimeMaxSec=12h
+
+[Install]
+WantedBy=default.target
