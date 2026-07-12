@@ -112,15 +112,29 @@ def scrape_search(scraper, search, pages: int) -> pd.DataFrame:
 
 
 def add_visual_features(rows: pd.DataFrame, out_dir: Path, methods: str, device: str) -> pd.DataFrame:
-    """Live only: download image + PIL/aesthetic/dino scores (heavy import kept lazy).
+    """Live only: PIL + aesthetic/dino quality scores on the images the scraper already
+    downloaded (LocalPrimaryImagePath is set by scrape with get_images=True).
 
-    The image cache is path-guarded to the time_to_sell tree, so it must live there
-    (same location the collector uses), not under our out_dir.
+    Uses giant_basic_visual's OWN _deps -- not time_to_sell -- so it resolves on the VPS
+    (the sender imports the same deps). Same computation as the collector's
+    add_live_visual_features, minus the redundant image-download step. Heavy imports lazy.
     """
-    from experiments.current.time_to_sell.live_bin_collector import add_live_visual_features
-    from experiments.current.time_to_sell.paths import EXPERIMENT_ROOT as TTS_ROOT
-    scored, _ = add_live_visual_features(rows, out_dir=TTS_ROOT / "fast_discovery_images",
-                                         image_timeout=20.0, methods=methods, device=device)
+    from experiments.current.giant_basic_visual._deps.photo_arbitrage.features import add_photo_features
+    from experiments.current.giant_basic_visual._deps.photo_arbitrage.quality_methods import (
+        add_quality_method_scores, MethodConfig,
+        DEFAULT_PYIQA_MODEL, DEFAULT_AESTHETIC_MODEL, DEFAULT_DINO_MODEL,
+    )
+    from experiments.current.giant_basic_visual._deps.full_scrape_model.compare_feature_modalities import (
+        add_dino_embedding_columns,
+    )
+    featured = add_photo_features(rows)
+    config = MethodConfig(
+        methods=tuple(p.strip() for p in methods.split(",") if p.strip()) if methods else ("simple",),
+        pyiqa_model=DEFAULT_PYIQA_MODEL, aesthetic_model=DEFAULT_AESTHETIC_MODEL,
+        dino_model=DEFAULT_DINO_MODEL, max_images_per_item=1, device=device,
+    )
+    scored = add_quality_method_scores(featured, config=config)
+    scored, _ = add_dino_embedding_columns(scored)
     return scored
 
 
