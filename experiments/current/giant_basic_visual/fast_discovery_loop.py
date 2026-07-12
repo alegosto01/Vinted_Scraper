@@ -181,16 +181,21 @@ def run_scan(df: pd.DataFrame, *, out_dir: Path, seen: dict[tuple[str, str], str
         })
     append_obs(out_dir, pd.DataFrame(obs_rows))
 
-    # send passers once, then mark seen forever
+    # send passers once (the sender dedups against the shared sent-log internally),
+    # then mark seen forever. dry_run=not send => dry runs simulate without sending.
     sent = 0
     passed = 0
     if not scored_new.empty:
         candidates = scorer.build_telegram_candidates(scored_new)
         passed = int(len(candidates))
-        if send and not candidates.empty:
-            sent_log = scorer.load_telegram_sent_log(scorer.TELEGRAM_SENT_LOG)
-            scorer.send_candidates_to_telegram(candidates, sent_log, scorer.TELEGRAM_SENT_LOG)
-            sent = passed
+        if not candidates.empty:
+            result = scorer.send_candidates_to_telegram(
+                candidates,
+                source_run="fast_discovery",
+                dry_run=not send,
+                sent_log_path=scorer.TELEGRAM_SENT_LOG,
+            )
+            sent = int(result.get("sent", 0))
     for k in keys:
         seen.setdefault(k, first_seen[k])
     save_seen(out_dir, seen)
