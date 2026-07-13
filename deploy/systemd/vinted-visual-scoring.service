@@ -6,10 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/Vinted_New_Version
-ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/apply_live_trained_to_live_collector.py --live-run-dir experiments/current/time_to_sell/data/live_runs/bin_collector_20260602_214104 --run-loop --send-telegram
+ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/apply_live_trained_to_live_collector.py --live-run-dir data/experiments/time_to_sell/live_runs/bin_collector_20260602_214104 --run-loop --send-telegram
 Restart=always
 RestartSec=15
 Environment=PYTHONUNBUFFERED=1
+MemoryMax=1500M
+MemorySwapMax=500M
+RuntimeMaxSec=12h
 
 [Install]
 WantedBy=default.target

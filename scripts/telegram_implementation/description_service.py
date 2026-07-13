@@ -34,7 +34,18 @@ _CORPUS_CACHE: dict[str, tuple[pd.DataFrame, float]] = {}
 _CORPUS_TTL_SECONDS = 3600  # refresh corpus once per hour
 
 
+def _evict_expired_corpus_entries() -> None:
+    """Drop expired entries so the cache doesn't grow unbounded over the bot's lifetime."""
+    now = time.monotonic()
+    expired = [key for key, (_, loaded_at) in _CORPUS_CACHE.items() if now - loaded_at >= _CORPUS_TTL_SECONDS]
+    for key in expired:
+        _CORPUS_CACHE.pop(key, None)
+    if expired:
+        LOGGER.info("Evicted %d expired corpus cache entries (%d remain)", len(expired), len(_CORPUS_CACHE))
+
+
 def _get_cached_corpus(search_name: str | None, prefer_brand: str | None, all_searches: bool) -> pd.DataFrame:
+    _evict_expired_corpus_entries()
     cache_key = f"{search_name or ''}|{prefer_brand or ''}|{all_searches}"
     cached = _CORPUS_CACHE.get(cache_key)
     if cached is not None:

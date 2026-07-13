@@ -21,6 +21,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from functools import lru_cache
 
 ROOT = Path(__file__).resolve().parents[3]
 for _path in (ROOT, ROOT / "scripts"):
@@ -50,6 +51,7 @@ from experiments.current.giant_basic_visual._deps.basic_5_giant_model.apply_to_l
     TELEGRAM_MIN_PRICE_EUR,
     TELEGRAM_SENT_LOG,
     item_identity,
+    load_telegram_sent_log,
     send_candidates_to_telegram,
 )
 from experiments.current.giant_basic_visual._deps.deal_finder.modeling import score_with_model  # noqa: E402
@@ -78,10 +80,18 @@ MODEL_SEARCHES = (
     "hobby_collezionismo",
 )
 ALL_SEARCHES = "__all__"
+MODEL_DISPLAY_NAME = f"giant_basic_visual/{APPROACH_KEY}"
+SEND_FULL_SCRAPE_COLUMNS = ("Description", "Upload_date", "SellerName", "ReviewsCount", "Stars")
 
 IMAGE_FEATURE_CACHE_PATH = EXPERIMENT_ROOT / "live_scoring" / "main_image_feature_cache.csv"
 CACHE_COLUMNS = ["image_path", *MAIN_IMAGE_FEATURES]
 SKIPPED_COLUMNS = ["SearchName", "item_id", "Dataid", "Link", "LocalPrimaryImagePath", "skip_reason"]
+
+
+@lru_cache(maxsize=None)
+def _load_cached_model(model_path: str) -> Any:
+    """Load and cache the joblib model so --run-loop iterations don't re-read disk."""
+    return joblib.load(model_path)
 
 
 def load_threshold() -> float:
@@ -216,6 +226,27 @@ def prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _model_feature_names(model: Any) -> list[str]:
+    names = getattr(model, "feature_names_in_", None)
+    if names is None and hasattr(model, "named_steps"):
+        for step in model.named_steps.values():
+            names = getattr(step, "feature_names_in_", None)
+            if names is not None:
+                break
+    return [str(name) for name in names] if names is not None else []
+
+
+def align_feature_frame_to_model(frame: pd.DataFrame, model: Any) -> pd.DataFrame:
+    expected = _model_feature_names(model)
+    if not expected:
+        return frame
+    aligned = frame.reindex(columns=expected)
+    for col in expected:
+        if col not in frame.columns:
+            aligned[col] = 0.0 if col.startswith("search__") or col in {"Price", "Likes"} else np.nan
+    return aligned.astype(float)
+
+
 def load_per_search_thresholds(model_dir: Path) -> dict[str, float]:
     """Load per-search thresholds from calibration file if available."""
     path = model_dir / "per_search_thresholds.json"
@@ -227,7 +258,7 @@ def load_per_search_thresholds(model_dir: Path) -> dict[str, float]:
 
 def apply_model(df: pd.DataFrame, model: Any, threshold: float, per_search_thresholds: dict[str, float] | None = None) -> pd.DataFrame:
     out = df.copy()
-    feature_frame = out[VISUAL_FEATURES].astype(float)
+    feature_frame = align_feature_frame_to_model(out[VISUAL_FEATURES].astype(float), model)
     probs = np.clip(np.asarray(score_with_model(model, feature_frame), dtype=float), 0.0, 1.0)
     out[SCORE_COL] = probs
     if per_search_thresholds:
@@ -247,10 +278,143 @@ def build_telegram_candidates(scored: pd.DataFrame) -> pd.DataFrame:
     candidates = scored[eligible].copy()
     if candidates.empty:
         return candidates
+    scores = pd.to_numeric(candidates[SCORE_COL], errors="coerce")
+    thresholds = pd.to_numeric(candidates[THRESHOLD_COL], errors="coerce")
+    margins = scores - thresholds
     candidates["TelegramItemKey"] = candidates.apply(item_identity, axis=1)
     candidates["TelegramPassedModels"] = APPROACH_KEY
     candidates["GiantPassedModels"] = APPROACH_KEY
+    candidates["TelegramModel"] = MODEL_DISPLAY_NAME
+    candidates["TelegramModelScore"] = scores
+    candidates["TelegramOriginalThreshold"] = thresholds
+    candidates["TelegramAdjustedThreshold"] = thresholds
+    candidates["TelegramThresholdAdjustment"] = 0.0
+    candidates["GiantBestModel"] = MODEL_DISPLAY_NAME
+    candidates["GiantBestScore"] = scores
+    candidates["GiantBestThreshold"] = thresholds
+    candidates["GiantBestMargin"] = margins
+    candidates["RecommendationReason"] = [
+        f"Model: {MODEL_DISPLAY_NAME} | score {score:.3f} | threshold {threshold:.3f} | margin {margin:+.3f}"
+        if pd.notna(score) and pd.notna(threshold) and pd.notna(margin)
+        else f"Model: {MODEL_DISPLAY_NAME}"
+        for score, threshold, margin in zip(scores, thresholds, margins)
+    ]
     return candidates.sort_values(SCORE_COL, ascending=False).reset_index(drop=True)
+
+
+def has_send_value(value: object) -> bool:
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple, dict, set)):
+        return bool(value)
+    return str(value).strip() not in {"", "nan", "None", "<NA>", "Unknown"}
+
+
+def needs_send_full_scrape(row: pd.Series) -> bool:
+    return any(not has_send_value(row.get(col)) for col in SEND_FULL_SCRAPE_COLUMNS)
+
+
+def collect_send_full_scrape_payloads(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if rows.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    from full_scraper import Full_Scraper  # noqa: WPS433
+
+    scraper = Full_Scraper()
+    successes: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for _, row in rows.iterrows():
+        search_name = str(row.get("SearchName") or "unknown")
+        success, failure = scraper.collect_full_item_payload(
+            row.to_dict(),
+            search_name=search_name,
+            reason="telegram_pre_send",
+            image_mode="html",
+        )
+        if success is not None:
+            successes.append(success)
+        if failure is not None:
+            failures.append(failure)
+    return pd.DataFrame(successes), pd.DataFrame(failures)
+
+
+def merge_full_scrape_successes(candidates: pd.DataFrame, successes: pd.DataFrame) -> pd.DataFrame:
+    if candidates.empty or successes.empty:
+        return candidates
+    out = candidates.copy()
+    enriched = successes.copy()
+    enriched["TelegramItemKey"] = enriched.apply(item_identity, axis=1)
+    enriched = enriched.drop_duplicates("TelegramItemKey", keep="last").set_index("TelegramItemKey", drop=False)
+    for idx, row in out.iterrows():
+        key = str(row.get("TelegramItemKey") or "")
+        if key not in enriched.index:
+            continue
+        enriched_row = enriched.loc[key]
+        for column, value in enriched_row.items():
+            if column == "TelegramItemKey" or not has_send_value(value):
+                continue
+            if column not in out.columns:
+                out[column] = pd.NA
+            out.at[idx, column] = value
+    return out
+
+
+def write_send_full_scrape_outputs(
+    out_dir: Path,
+    successes: pd.DataFrame,
+    failures: pd.DataFrame,
+    *,
+    requested: int,
+) -> dict[str, Any]:
+    out_dir = assert_experiment_path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary: dict[str, Any] = {
+        "requested": int(requested),
+        "succeeded": int(len(successes)),
+        "failed": int(len(failures)),
+    }
+    if not successes.empty:
+        path = out_dir / "telegram_send_full_scrape_successes.csv"
+        successes.to_csv(path, index=False)
+        summary["successes_path"] = str(path)
+    if not failures.empty:
+        path = out_dir / "telegram_send_full_scrape_failures.csv"
+        failures.to_csv(path, index=False)
+        summary["failures_path"] = str(path)
+    return summary
+
+
+def prepare_candidates_for_telegram_send(
+    candidates: pd.DataFrame,
+    *,
+    out_dir: Path,
+    sent_log_path: Path = TELEGRAM_SENT_LOG,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if candidates.empty:
+        return candidates, {"status": "no_candidates", "requested": 0, "succeeded": 0, "failed": 0}
+    if dry_run:
+        return candidates, {"status": "skipped_dry_run", "requested": 0, "succeeded": 0, "failed": 0}
+
+    sent_log = load_telegram_sent_log(sent_log_path)
+    sent_keys = set(sent_log.get("item_key", pd.Series(dtype=str)).astype(str))
+    new_candidates = candidates[~candidates["TelegramItemKey"].astype(str).isin(sent_keys)].copy()
+    if limit is not None:
+        new_candidates = new_candidates.head(max(0, int(limit))).copy()
+    missing = new_candidates[new_candidates.apply(needs_send_full_scrape, axis=1)].copy()
+    if missing.empty:
+        return candidates, {"status": "already_enriched", "requested": 0, "succeeded": 0, "failed": 0}
+
+    successes, failures = collect_send_full_scrape_payloads(missing)
+    enriched_candidates = merge_full_scrape_successes(candidates, successes)
+    summary = write_send_full_scrape_outputs(out_dir, successes, failures, requested=int(len(missing)))
+    summary["status"] = "attempted"
+    return enriched_candidates, summary
 
 
 def coerce_bool(series: pd.Series) -> pd.Series:
@@ -341,6 +505,7 @@ def write_report(
     image_stats: dict[str, Any],
     threshold: float,
     telegram_result: dict[str, Any] | None,
+    telegram_full_scrape_result: dict[str, Any] | None = None,
 ) -> None:
     def fmt(value: object, decimals: int = 3) -> str:
         try:
@@ -429,6 +594,15 @@ def write_report(
                 f"- `{json.dumps(telegram_result, sort_keys=True)}`",
             ]
         )
+    if telegram_full_scrape_result is not None:
+        lines.extend(
+            [
+                "",
+                "## Telegram Pre-Send Full Scrape",
+                "",
+                f"- `{json.dumps(telegram_full_scrape_result, sort_keys=True)}`",
+            ]
+        )
 
     lines.extend(
         [
@@ -458,6 +632,7 @@ def write_outputs(
     image_stats: dict[str, Any],
     threshold: float,
     telegram_result: dict[str, Any] | None = None,
+    telegram_full_scrape_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out_dir = assert_experiment_path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -487,11 +662,13 @@ def write_outputs(
         image_stats=image_stats,
         threshold=threshold,
         telegram_result=telegram_result,
+        telegram_full_scrape_result=telegram_full_scrape_result,
     )
 
     manifest_extra = {
         "mode": "live_send" if (telegram_result and not telegram_result.get("dry_run")) else "shadow_or_dry_run",
         "telegram": telegram_result,
+        "telegram_full_scrape": telegram_full_scrape_result,
         "live_run_dir": str(live_run_dir),
         "model": {
             "feature_mode": "main_image_scores",
@@ -515,6 +692,19 @@ def write_outputs(
     return manifest_extra
 
 
+def _cleanup_old_live_scoring_dirs(keep: int = 3) -> None:
+    """Delete old live_scoring run dirs, keeping only the most recent `keep`."""
+    scoring_root = EXPERIMENT_ROOT / "live_scoring"
+    if not scoring_root.exists():
+        return
+    dirs = sorted(scoring_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old_dir in dirs[keep:]:
+        if old_dir.is_dir():
+            import shutil
+            shutil.rmtree(old_dir, ignore_errors=True)
+            print(f"[apply_live_trained] cleaned old scoring dir: {old_dir.name}", flush=True)
+
+
 def run_once(args: argparse.Namespace) -> dict[str, Any]:
     live_run_dir = Path(args.live_run_dir)
     out_dir = Path(args.out_dir) if args.out_dir else EXPERIMENT_ROOT / "live_scoring" / run_id("live_scoring")
@@ -532,7 +722,7 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
         print(f"[apply_live_trained] using per-search thresholds for {len(per_search_thresholds)} searches (global fallback={threshold:.4f})", flush=True)
     else:
         print(f"[apply_live_trained] using global threshold={threshold:.4f}", flush=True)
-    model = joblib.load(model_path)
+    model = _load_cached_model(str(model_path))
 
     print(f"[apply_live_trained] loading tracked items from {live_run_dir}", flush=True)
     tracked = load_live_tracked(live_run_dir)
@@ -550,10 +740,23 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     print(f"[apply_live_trained] {APPROACH_KEY}: {total_passed} passed threshold {threshold:.4f}", flush=True)
 
     telegram_result: dict[str, Any] | None = None
+    telegram_full_scrape_result: dict[str, Any] | None = None
     if args.send_telegram or args.telegram_dry_run:
         candidates = build_telegram_candidates(scored)
         print(
             f"[apply_live_trained] {len(candidates)} items passed visual model + price>{TELEGRAM_MIN_PRICE_EUR:.2f}€",
+            flush=True,
+        )
+        candidates, telegram_full_scrape_result = prepare_candidates_for_telegram_send(
+            candidates,
+            out_dir=out_dir,
+            dry_run=bool(args.telegram_dry_run),
+            limit=args.telegram_limit,
+            sent_log_path=TELEGRAM_SENT_LOG,
+        )
+        print(
+            f"[apply_live_trained] telegram pre-send full scrape: "
+            f"{json.dumps(telegram_full_scrape_result, ensure_ascii=False)}",
             flush=True,
         )
         telegram_result = send_candidates_to_telegram(
@@ -573,6 +776,7 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
         image_stats=image_stats,
         threshold=threshold,
         telegram_result=telegram_result,
+        telegram_full_scrape_result=telegram_full_scrape_result,
     )
     print(json.dumps(manifest, indent=2), flush=True)
     return manifest
@@ -598,6 +802,7 @@ def main() -> int:
     if args.run_loop:
         while True:
             run_once(args)
+            _cleanup_old_live_scoring_dirs(keep=3)
             print(f"[apply_live_trained] sleeping {args.sleep_seconds:.1f}s before next scoring pass", flush=True)
             time.sleep(max(1.0, float(args.sleep_seconds)))
     run_once(args)

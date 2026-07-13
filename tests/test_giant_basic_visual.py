@@ -4,7 +4,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import numpy as np
 import pandas as pd
 from PIL import Image
 
@@ -18,7 +20,9 @@ from experiments.current.basic_5_giant_model import apply_to_live_collector as b
 from experiments.current.basic_5_giant_model import run as basic5_run
 from experiments.old.deal_finder.modeling import TARGET_COL
 from experiments.current.giant_basic_visual import apply_to_live_collector as visual_live
+from experiments.current.giant_basic_visual import apply_live_trained_to_live_collector as visual_live_trained
 from experiments.current.giant_basic_visual import features as visual_features
+from experiments.current.giant_basic_visual import live_shap_likes_report
 from experiments.current.giant_basic_visual import run as visual_run
 
 
@@ -204,6 +208,178 @@ class GiantBasicVisualTests(unittest.TestCase):
             basic5_live.TELEGRAM_POLICY_DESCRIPTION,
             "any normal giant-model pass plus price > 30 EUR",
         )
+
+    def test_live_trained_scoring_uses_model_feature_names(self):
+        class FakeModel:
+            feature_names_in_ = ["Price", "Likes", "search__nike", "search__ps4"]
+
+        frame = pd.DataFrame(
+            {
+                "Price": [10.0],
+                "Likes": [2.0],
+                "search__nike": [1.0],
+                "search__donna_accessori_gioielli": [1.0],
+            }
+        )
+
+        aligned = visual_live_trained.align_feature_frame_to_model(frame, FakeModel())
+
+        self.assertEqual(aligned.columns.tolist(), ["Price", "Likes", "search__nike", "search__ps4"])
+        self.assertEqual(float(aligned.iloc[0]["search__ps4"]), 0.0)
+
+    def test_live_trained_telegram_candidates_include_model_metadata(self):
+        scored = pd.DataFrame(
+            {
+                "SearchName": ["nike"],
+                "item_id": ["1"],
+                "Title": ["Nike shoes"],
+                "Link": ["https://www.vinted.it/items/1"],
+                "Price": [50.0],
+                visual_live_trained.SCORE_COL: [0.64321],
+                visual_live_trained.THRESHOLD_COL: [0.58],
+                visual_live_trained.PASS_COL: [True],
+            }
+        )
+
+        candidates = visual_live_trained.build_telegram_candidates(scored)
+
+        self.assertEqual(len(candidates), 1)
+        row = candidates.iloc[0]
+        self.assertEqual(row["TelegramModel"], visual_live_trained.MODEL_DISPLAY_NAME)
+        self.assertAlmostEqual(float(row["TelegramModelScore"]), 0.64321)
+        self.assertAlmostEqual(float(row["TelegramAdjustedThreshold"]), 0.58)
+        self.assertAlmostEqual(float(row["GiantBestMargin"]), 0.06321)
+        self.assertIn("score 0.643", row["RecommendationReason"])
+
+    def test_live_trained_failed_candidate_can_become_eligible_later(self):
+        base = {
+            "SearchName": "nike",
+            "item_id": "1",
+            "Link": "https://www.vinted.it/items/1",
+            "Price": 50.0,
+            visual_live_trained.THRESHOLD_COL: 0.58,
+        }
+        failed = pd.DataFrame([{**base, visual_live_trained.SCORE_COL: 0.57, visual_live_trained.PASS_COL: False}])
+        passed = pd.DataFrame([{**base, visual_live_trained.SCORE_COL: 0.59, visual_live_trained.PASS_COL: True}])
+
+        self.assertTrue(visual_live_trained.build_telegram_candidates(failed).empty)
+        self.assertEqual(len(visual_live_trained.build_telegram_candidates(passed)), 1)
+
+    def test_prepare_candidates_full_scrapes_only_new_missing_rows(self):
+        candidates = pd.DataFrame(
+            {
+                "TelegramItemKey": ["1"],
+                "SearchName": ["nike"],
+                "item_id": ["1"],
+                "Link": ["https://www.vinted.it/items/1"],
+                "Title": ["Nike shoes"],
+                "Price": [50.0],
+                "Description": [""],
+                "Upload_date": [""],
+                "SellerName": [""],
+                "ReviewsCount": [pd.NA],
+                "Stars": [pd.NA],
+            }
+        )
+        successes = pd.DataFrame(
+            {
+                "item_id": ["1"],
+                "Description": ["Full description"],
+                "Upload_date": ["today"],
+                "SellerName": ["seller"],
+                "ReviewsCount": [12],
+                "Stars": [4.8],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                visual_live_trained,
+                "collect_send_full_scrape_payloads",
+                return_value=(successes, pd.DataFrame()),
+            ) as collect_mock, mock.patch.object(
+                visual_live_trained,
+                "write_send_full_scrape_outputs",
+                return_value={"requested": 1, "succeeded": 1, "failed": 0},
+            ):
+                enriched, summary = visual_live_trained.prepare_candidates_for_telegram_send(
+                    candidates,
+                    out_dir=Path(tmp),
+                    sent_log_path=Path(tmp) / "sent.csv",
+                )
+
+        collect_mock.assert_called_once()
+        self.assertEqual(summary["status"], "attempted")
+        self.assertEqual(enriched.loc[0, "Description"], "Full description")
+        self.assertEqual(enriched.loc[0, "SellerName"], "seller")
+
+    def test_prepare_candidates_does_not_full_scrape_already_sent_rows(self):
+        candidates = pd.DataFrame(
+            {
+                "TelegramItemKey": ["1"],
+                "SearchName": ["nike"],
+                "item_id": ["1"],
+                "Link": ["https://www.vinted.it/items/1"],
+                "Description": [""],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sent_log = Path(tmp) / "sent.csv"
+            pd.DataFrame({"item_key": ["1"]}).to_csv(sent_log, index=False)
+            with mock.patch.object(visual_live_trained, "collect_send_full_scrape_payloads") as collect_mock:
+                _enriched, summary = visual_live_trained.prepare_candidates_for_telegram_send(
+                    candidates,
+                    out_dir=Path(tmp),
+                    sent_log_path=sent_log,
+                )
+
+        collect_mock.assert_not_called()
+        self.assertEqual(summary["requested"], 0)
+
+    def test_prepare_candidates_keeps_row_when_full_scrape_fails(self):
+        candidates = pd.DataFrame(
+            {
+                "TelegramItemKey": ["1"],
+                "SearchName": ["nike"],
+                "item_id": ["1"],
+                "Link": ["https://www.vinted.it/items/1"],
+                "Description": [""],
+            }
+        )
+        failures = pd.DataFrame({"item_id": ["1"], "FullScrapeStatus": ["FetchFailed"]})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                visual_live_trained,
+                "collect_send_full_scrape_payloads",
+                return_value=(pd.DataFrame(), failures),
+            ), mock.patch.object(
+                visual_live_trained,
+                "write_send_full_scrape_outputs",
+                return_value={"requested": 1, "succeeded": 0, "failed": 1},
+            ):
+                enriched, summary = visual_live_trained.prepare_candidates_for_telegram_send(
+                    candidates,
+                    out_dir=Path(tmp),
+                    sent_log_path=Path(tmp) / "sent.csv",
+                )
+
+        self.assertEqual(len(enriched), 1)
+        self.assertEqual(summary["status"], "attempted")
+        self.assertEqual(summary["failed"], 1)
+
+    def test_likes_summary_reports_rank_and_effect(self):
+        importance = live_shap_likes_report.feature_importance_frame(
+            values=np.array([[2.0, 0.1], [-1.0, 0.2]]),
+            feature_names=["Likes", "Price"],
+        )
+
+        summary = live_shap_likes_report.likes_summary(importance)
+
+        self.assertTrue(summary["present"])
+        self.assertEqual(summary["rank"], 1)
+        self.assertAlmostEqual(summary["mean_abs_shap"], 1.5)
 
 
 if __name__ == "__main__":

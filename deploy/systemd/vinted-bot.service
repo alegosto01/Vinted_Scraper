@@ -10,6 +10,9 @@ ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python scripts/telegram_implemen
 Restart=always
 RestartSec=15
 Environment=PYTHONUNBUFFERED=1
+MemoryMax=800M
+MemorySwapMax=300M
+RuntimeMaxSec=12h
 
 [Install]
 WantedBy=default.target

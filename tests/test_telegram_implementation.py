@@ -21,6 +21,7 @@ from telegram_implementation.notify import (
     build_caption,
     build_description_actions_keyboard,
     build_generate_keyboard,
+    build_model_metadata_line,
     extract_primary_image_url,
 )
 
@@ -95,6 +96,26 @@ class TelegramImplementationTests(unittest.TestCase):
         caption = build_caption(item)
 
         self.assertIn("Giant model pass", caption)
+
+    def test_caption_includes_model_score_threshold_line(self):
+        item = {
+            "Title": "Prada bag",
+            "Price": 50,
+            "Link": "https://example.com/item/1",
+            "TelegramModel": "giant_basic_visual/main_image_scores_live_trained",
+            "TelegramModelScore": 0.64321,
+            "TelegramAdjustedThreshold": 0.58,
+            "GiantBestMargin": 0.06321,
+        }
+
+        line = build_model_metadata_line(item)
+        caption = build_caption(item)
+
+        self.assertEqual(
+            line,
+            "Model: giant_basic_visual/main_image_scores_live_trained | score 0.643 | threshold 0.580 | margin +0.063",
+        )
+        self.assertIn(line, caption)
 
     def test_caption_includes_seller_reviews_when_rated(self):
         item = {

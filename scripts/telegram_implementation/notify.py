@@ -25,6 +25,18 @@ CAPTION_LIMIT = 1024
 COPY_TEXT_LIMIT = 256
 
 
+def _parse_float(value: object) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed:  # NaN
+        return None
+    return parsed
+
+
 def extract_primary_image_url(image_value: object) -> str | None:
     if image_value in (None, ""):
         return None
@@ -46,6 +58,21 @@ def extract_primary_image_url(image_value: object) -> str | None:
                 return resolved
         return None
     return None
+
+
+def build_model_metadata_line(item: Mapping[str, object]) -> str | None:
+    model = str(item.get("TelegramModel") or item.get("GiantBestModel") or "").strip()
+    score = _parse_float(item.get("TelegramModelScore", item.get("GiantBestScore")))
+    threshold = _parse_float(item.get("TelegramAdjustedThreshold", item.get("GiantBestThreshold")))
+    margin = _parse_float(item.get("GiantBestMargin"))
+    if margin is None and score is not None and threshold is not None:
+        margin = score - threshold
+    if not model or score is None or threshold is None:
+        return None
+    line = f"Model: {model} | score {score:.3f} | threshold {threshold:.3f}"
+    if margin is not None:
+        line += f" | margin {margin:+.3f}"
+    return line
 
 
 def build_seller_review_line(item: Mapping[str, object]) -> str | None:
@@ -101,8 +128,12 @@ def build_caption(item: Mapping[str, object]) -> str:
     seller_line = build_seller_review_line(item)
     if seller_line:
         lines.append(seller_line)
+    model_line = build_model_metadata_line(item)
+    if model_line:
+        lines.append(esc(model_line) or "")
     if reason:
-        lines.append(esc(reason) or "")
+        if not model_line or reason != model_line:
+            lines.append(esc(reason) or "")
     if url:
         lines.append(esc(url) or "")
 

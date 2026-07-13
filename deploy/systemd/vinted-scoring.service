@@ -10,6 +10,9 @@ ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python experiments/current/basic
 Restart=always
 RestartSec=15
 Environment=PYTHONUNBUFFERED=1
+MemoryMax=1500M
+MemorySwapMax=500M
+RuntimeMaxSec=12h
 
 [Install]
 WantedBy=default.target

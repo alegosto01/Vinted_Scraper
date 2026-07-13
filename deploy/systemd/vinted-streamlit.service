@@ -11,6 +11,8 @@ ExecStart=%h/miniconda3/envs/vinted_scraper/bin/python -m streamlit run app.py -
 Restart=always
 RestartSec=15
 Environment=PYTHONUNBUFFERED=1
+MemoryMax=2G
+RuntimeMaxSec=24h
 
 [Install]
 WantedBy=default.target

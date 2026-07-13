@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,7 @@ def metadata_path(approach: str, offline_run: str = OFFLINE_RUN_NAME) -> Path:
     return MODELS_DIR / f"{model_basename(approach, offline_run)}_metadata.json"
 
 
+@lru_cache(maxsize=None)
 def load_model(path: Path) -> Any:
     with path.open("rb") as handle:
         return pickle.load(handle)
@@ -145,6 +147,7 @@ def offline_run_dir(offline_run: str = OFFLINE_RUN_NAME) -> Path:
     return OFFLINE_RUNS_DIR / offline_run
 
 
+@lru_cache(maxsize=None)
 def load_threshold_table(offline_run: str = OFFLINE_RUN_NAME) -> pd.DataFrame:
     path = offline_run_dir(offline_run) / "per_search_threshold_metrics.csv"
     if not path.exists():
@@ -816,6 +819,19 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     return manifest
 
 
+def _cleanup_old_live_scoring_dirs(keep: int = 3) -> None:
+    """Delete old live_scoring run dirs, keeping only the most recent `keep`."""
+    scoring_root = EXPERIMENT_ROOT / "live_scoring"
+    if not scoring_root.exists():
+        return
+    dirs = sorted(scoring_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old_dir in dirs[keep:]:
+        if old_dir.is_dir():
+            import shutil
+            shutil.rmtree(old_dir, ignore_errors=True)
+            print(f"[apply_live] cleaned old scoring dir: {old_dir.name}", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--live-run-dir", type=Path, required=True)
@@ -835,6 +851,7 @@ def main() -> int:
     if args.run_loop:
         while True:
             run_once(args)
+            _cleanup_old_live_scoring_dirs(keep=3)
             print(f"[apply_live] sleeping {args.sleep_seconds:.1f}s before next scoring pass", flush=True)
             time.sleep(max(1.0, float(args.sleep_seconds)))
     run_once(args)
