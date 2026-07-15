@@ -96,11 +96,11 @@ def append_obs(out_dir: Path, rows: pd.DataFrame) -> None:
     rows.to_csv(path, mode="a", header=not path.exists(), index=False)
 
 
-def scrape_search(scraper, search, pages: int) -> pd.DataFrame:
+def scrape_search(scraper, search, pages: int, get_images: bool = True) -> pd.DataFrame:
     """Scrape newest_first page(s) for one search. Returns a catalog DataFrame."""
     search.sort = "newest_first"
     data = scraper.scrape_products_serial(dictionary=search, search_count=0,
-                                          pages_to_scrape=pages, get_images=True)
+                                          pages_to_scrape=pages, get_images=get_images)
     df = pd.DataFrame(data)
     if df.empty:
         return df
@@ -145,7 +145,7 @@ def score_frame(df: pd.DataFrame, model, threshold: float, per_search: dict[str,
 
 def run_scan(df: pd.DataFrame, *, out_dir: Path, seen: dict[tuple[str, str], str],
              model, threshold: float, per_search: dict[str, float],
-             live: bool, methods: str, device: str, send: bool) -> dict:
+             live: bool, methods: str, device: str, send: bool, score: bool = True) -> dict:
     if df.empty:
         return {"seen": 0, "new": 0, "passed": 0, "sent": 0}
     df = df[df["SearchName"].isin(MODEL_SEARCHES)].copy()
@@ -154,11 +154,15 @@ def run_scan(df: pd.DataFrame, *, out_dir: Path, seen: dict[tuple[str, str], str
     is_new = np.array([k not in seen for k in keys])
     df["is_new"] = is_new
 
-    # compute visual features for NEW items only (score-once); reappearances are log-only
+    # compute visual features for NEW items only (score-once); reappearances are log-only.
+    # --no-score (score=False) => observation-log only (likes/price/dt), no visual/model/send.
     new_df = df[is_new].copy()
-    if live and not new_df.empty:
-        new_df = add_visual_features(new_df, out_dir, methods, device)
-    scored_new = score_frame(new_df, model, threshold, per_search) if not new_df.empty else new_df
+    if score and not new_df.empty:
+        if live:
+            new_df = add_visual_features(new_df, out_dir, methods, device)
+        scored_new = score_frame(new_df, model, threshold, per_search)
+    else:
+        scored_new = pd.DataFrame()
 
     # observation log: every item seen this scan
     first_seen = {k: seen.get(k, obs_ts.isoformat()) for k in keys}
@@ -202,13 +206,41 @@ def run_scan(df: pd.DataFrame, *, out_dir: Path, seen: dict[tuple[str, str], str
     return {"seen": len(keys), "new": int(is_new.sum()), "passed": passed, "sent": sent}
 
 
-def live_searches():
+def live_searches(subset: set[str] | None = None):
     from config.project_config import settings
     from config.search_loader import load_searches
     searches = load_searches(str(settings.paths.searches_yaml))
     # Cover every search the model knows, regardless of the yaml enabled/cascade_only
     # flags (the main 6 are enabled=False there but are still scored live).
-    return [s for s in searches.values() if s.folder in MODEL_SEARCHES]
+    wanted = (MODEL_SEARCHES & subset) if subset else MODEL_SEARCHES
+    return [s for s in searches.values() if s.folder in wanted]
+
+
+def make_noproxy_fetch(scraper):
+    """No-proxy catalog fetch (curl_cffi Chrome TLS impersonation), drop-in for
+    scraper.get_page_content_datacenter. Viable per the per-search ~10-page/window
+    quota measured 2026-07-13 (see the vinted-per-ip-quota memory)."""
+    from curl_cffi import requests as cffi
+    session = cffi.Session(impersonate="chrome")
+    headers = scraper._default_page_headers()
+
+    def fetch(url, timeout=40, sleep=10, max_attempts=3, request_kind='page'):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                r = session.get(url, headers=headers, timeout=timeout)
+                if r.status_code == 200 and r.text.strip():
+                    if sleep and sleep > 0:
+                        time.sleep(sleep)
+                    return r.text
+                if r.status_code in (403, 429):
+                    time.sleep(min(60.0, float(sleep) * attempt))
+            except Exception as exc:  # noqa: BLE001
+                print(f"  noproxy fetch err attempt={attempt}: {exc}")
+            if attempt < max_attempts:
+                time.sleep(2.0 * attempt)
+        return None
+
+    return fetch
 
 
 def main() -> int:
@@ -219,6 +251,15 @@ def main() -> int:
     ap.add_argument("--interval", type=float, default=15.0)
     ap.add_argument("--pages", type=int, default=1)
     ap.add_argument("--send", action="store_true", help="Actually send to Telegram (default off).")
+    ap.add_argument("--no-proxy", action="store_true",
+                    help="Fetch catalog pages with no proxy (curl_cffi impersonation).")
+    ap.add_argument("--no-score", action="store_true",
+                    help="Observation-log only: skip visual features, model scoring, and sends.")
+    ap.add_argument("--searches", default=None,
+                    help="Comma-separated subset of MODEL_SEARCHES to run (default: all).")
+    ap.add_argument("--pages-map", default=None,
+                    help="Per-search page depth override, e.g. "
+                         "'hobby_collezionismo=5,telefoni=2'. Falls back to --pages.")
     ap.add_argument("--methods", default="simple,aesthetic,dino")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out-dir", default=str(DEFAULT_OUT))
@@ -227,22 +268,30 @@ def main() -> int:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    model_dir = Path(args.model_dir) if args.model_dir else scorer.MODEL_DIR
-    model_path = model_dir / scorer.MODEL_PATH.name
-    model = scorer._load_cached_model(str(model_path))
-    import json as _json
-    threshold = float(_json.loads((model_dir / "results.json").read_text())["results"]["main_image_scores"]["threshold"])
-    per_search = scorer.load_per_search_thresholds(model_dir)
     seen = load_seen(out_dir)
-    print(f"model_dir={model_dir.name} model={model_path.name} seen={len(seen)} out={out_dir}")
-    if per_search:
-        print(f"PER-SEARCH THRESHOLDS ACTIVE: {len(per_search)} searches -> "
-              + ", ".join(f"{s}={t:.3f}" for s, t in sorted(per_search.items())))
+    if args.no_score:
+        # Observation-log only: no model needed (avoids the VPS-only model dir).
+        model, threshold, per_search = None, 0.0, {}
+        print(f"NO-SCORE mode: observation log only. seen={len(seen)} out={out_dir}")
+        _no_score_early = True
     else:
-        print(f"WARNING: no per_search_thresholds.json in {model_dir} -> using GLOBAL threshold "
-              f"{threshold:.4f} for every search. Per the decisions doc, the newer searches "
-              f"(donna_accessori_gioielli, hobby_collezionismo, telefoni) get ~0 passes at the "
-              f"global threshold. Calibrate before trusting live sends.")
+        _no_score_early = False
+        model_dir = Path(args.model_dir) if args.model_dir else scorer.MODEL_DIR
+        model_path = model_dir / scorer.MODEL_PATH.name
+        model = scorer._load_cached_model(str(model_path))
+        import json as _json
+        threshold = float(_json.loads((model_dir / "results.json").read_text())["results"]["main_image_scores"]["threshold"])
+        per_search = scorer.load_per_search_thresholds(model_dir)
+    if not _no_score_early:
+        print(f"model_dir={model_dir.name} model={model_path.name} seen={len(seen)} out={out_dir}")
+        if per_search:
+            print(f"PER-SEARCH THRESHOLDS ACTIVE: {len(per_search)} searches -> "
+                  + ", ".join(f"{s}={t:.3f}" for s, t in sorted(per_search.items())))
+        else:
+            print(f"WARNING: no per_search_thresholds.json in {model_dir} -> using GLOBAL threshold "
+                  f"{threshold:.4f} for every search. Per the decisions doc, the newer searches "
+                  f"(donna_accessori_gioielli, hobby_collezionismo, telefoni) get ~0 passes at the "
+                  f"global threshold. Calibrate before trusting live sends.")
 
     if args.replay:
         df = pd.read_csv(args.replay, low_memory=False)
@@ -257,9 +306,21 @@ def main() -> int:
         ap.error("choose --replay, --once, or --loop")
     from simple_scraper import Simple_scraper
     scraper = Simple_scraper()
+    if args.no_proxy:
+        scraper.get_page_content_datacenter = make_noproxy_fetch(scraper)
+        print("NO-PROXY mode: catalog pages fetched via curl_cffi (no datacenter proxy).")
     counter = RequestCounter(out_dir)
     counter.wrap(scraper)
-    searches = live_searches()
+    subset = {s.strip() for s in args.searches.split(",") if s.strip()} if args.searches else None
+    searches = live_searches(subset)
+    pages_map = {}
+    if args.pages_map:
+        for kv in args.pages_map.split(","):
+            k, _, v = kv.partition("=")
+            if k.strip() and v.strip():
+                pages_map[k.strip()] = int(v)
+    if pages_map:
+        print(f"per-search pages: {pages_map} (default {args.pages})")
     print(f"searches: {[s.folder for s in searches]}  requests_total_so_far={counter.total}")
 
     while True:
@@ -267,7 +328,8 @@ def main() -> int:
         frames = []
         for s in searches:
             try:
-                fr = scrape_search(scraper, s, args.pages)
+                fr = scrape_search(scraper, s, pages_map.get(s.folder, args.pages),
+                                   get_images=not args.no_score)
                 if not fr.empty:
                     overlap = sum((s.folder, str(i)) in seen for i in fr["item_id"])
                     # Full page with zero overlap => newest_first didn't reach items we
@@ -283,7 +345,7 @@ def main() -> int:
         df = pd.concat([f for f in frames if not f.empty], ignore_index=True) if frames else pd.DataFrame()
         stats = run_scan(df, out_dir=out_dir, seen=seen, model=model, threshold=threshold,
                          per_search=per_search, live=True, methods=args.methods,
-                         device=args.device, send=args.send)
+                         device=args.device, send=args.send, score=not args.no_score)
         counter.commit(stats)
         print(f"{now_utc().isoformat()} scan: {stats} requests_this_scan={counter.scan} "
               f"requests_total={counter.total}")

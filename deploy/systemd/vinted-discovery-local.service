@@ -1,0 +1,15 @@
+[Unit]
+Description=Vinted no-proxy discovery loop (laptop, 3 searches, 15-min, observation log)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
+ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python experiments/current/giant_basic_visual/fast_discovery_loop.py --loop --interval 15 --pages 2 --pages-map hobby_collezionismo=5 --no-proxy --no-score --searches hobby_collezionismo,donna_accessori_gioielli,telefoni --out-dir experiments/current/giant_basic_visual/data/fast_discovery_local
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

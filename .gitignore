@@ -133,3 +133,4 @@ scripts/telegram_scripts/bot_env.env
 # Graphify branch: keep generated graph state local.
 docs/full_experiment_basic_visual_model.md
 graphify-out/
+scripts/storage/

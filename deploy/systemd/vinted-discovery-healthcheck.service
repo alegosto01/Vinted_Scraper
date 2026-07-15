@@ -1,0 +1,7 @@
+[Unit]
+Description=Vinted discovery loop healthcheck (codex gpt-5.4-codex, auto-fix + telegram alert)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
+ExecStart=/home/ale/Desktop/vinted/Vinted_New_Version/scripts/discovery_healthcheck.sh
