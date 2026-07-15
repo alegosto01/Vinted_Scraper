@@ -78,6 +78,8 @@ MODEL_SEARCHES = (
     "donna_accessori_gioielli",
     "telefoni",
     "hobby_collezionismo",
+    "console",
+    "tablets",
 )
 ALL_SEARCHES = "__all__"
 MODEL_DISPLAY_NAME = f"giant_basic_visual/{APPROACH_KEY}"

@@ -186,3 +186,31 @@ telefoni:
   enabled: true
   no_residential: true
   tags: []
+
+console:
+  search: " "
+  prezzoDa: "30"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Elettronica /Videogiochi e console /Console"
+  folder: "console"
+  enabled: true
+  no_residential: true
+  tags: []
+
+tablets:
+  search: " "
+  prezzoDa: "30"
+  prezzoA: " "
+  condition: "6-1"
+  colore: " "
+  brands: " "
+  sort: "newest_first"
+  category: "Elettronica /Tablet, e-reader e accessori /Tablet"
+  folder: "tablets"
+  enabled: true
+  no_residential: true
+  tags: []

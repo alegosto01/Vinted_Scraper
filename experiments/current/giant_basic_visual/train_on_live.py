@@ -67,6 +67,8 @@ SEARCH_ONEHOTS = [
     "search__telefoni",
     "search__donna_accessori_gioielli",
     "search__hobby_collezionismo",
+    "search__console",
+    "search__tablets",
 ]
 KNOWN_SEARCHES = {col.replace("search__", "") for col in SEARCH_ONEHOTS}
 
