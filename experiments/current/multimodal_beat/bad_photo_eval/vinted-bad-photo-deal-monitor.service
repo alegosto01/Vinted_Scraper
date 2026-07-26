@@ -1,0 +1,14 @@
+[Unit]
+Description=Slow Vinted bad-photo deal monitor
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
+Environment=MPLCONFIGDIR=/tmp/matplotlib-bad-photo-monitor
+ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python /home/ale/Desktop/vinted/Vinted_New_Version/experiments/current/multimodal_beat/bad_photo_eval/bad_photo_deal_monitor.py --public-base-url http://100.84.171.76:8765
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target
