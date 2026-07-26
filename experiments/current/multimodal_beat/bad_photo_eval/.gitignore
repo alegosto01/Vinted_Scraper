@@ -1,0 +1,5 @@
+# Generated data, images, caches, logs, model outputs — never commit (253M+).
+# Narrative docs live at the dir root (README.md, FINDINGS.md, MUSIQ_RESULTS.md) and ARE tracked.
+data/
+__pycache__/
+*.pyc
