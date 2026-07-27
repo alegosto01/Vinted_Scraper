@@ -64,7 +64,9 @@ SEARCHES = (
     "donna_accessori_gioielli",
 )
 CONDITION_IDS = {name.casefold(): status_id for status_id, name in STATUS_NAMES.items()}
-MUSIQ_BAD_THRESHOLD = 67.7
+MUSIQ_BAD_THRESHOLD = 55.0
+# Phone photos score lower across the board, so they need their own cut.
+SEARCH_MUSIQ_THRESHOLDS = {"telefoni": 65.0}
 
 
 @dataclass(frozen=True)
@@ -248,7 +250,7 @@ code{{display:block;font-size:12px;overflow-wrap:anywhere}}.warning{{background:
 <h1>{html.escape(str(target['Title']))}</h1>
 <section class="target"><img src="{html.escape(str(target['Images']))}">
 <p><b>Target €{float(target['Price']):.2f}</b> · {html.escape(str(target['Condition']))}</p>
-<p>MUSIQ {musiq:.1f} (bad when &lt; {MUSIQ_BAD_THRESHOLD:.1f})</p>
+<p>MUSIQ {musiq:.1f} (0-100, lower is worse)</p>
 <p><a href="{html.escape(str(target['Link']))}" target="_blank" rel="noopener">Open target on Vinted</a></p>
 </section>
 <p class="warning"><b>{html.escape(analysis['verdict'])}</b><br>
@@ -443,8 +445,9 @@ class Monitor:
                 self.state.add_many("seen", [item_id])
                 continue
             musiq = self.score_musiq(image_path)
-            LOG.info("%s MUSIQ=%.1f", item_id, musiq)
-            if musiq >= self.args.musiq_threshold:
+            threshold = SEARCH_MUSIQ_THRESHOLDS.get(name, self.args.musiq_threshold)
+            LOG.info("%s MUSIQ=%.1f (%s cut %.1f)", item_id, musiq, name, threshold)
+            if musiq >= threshold:
                 self.state.add_many("seen", [item_id])
                 continue
             analysis, report_name = self.analyze(target, image_path, musiq)
