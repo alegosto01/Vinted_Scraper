@@ -43,6 +43,8 @@ from match_vinted_products import (  # noqa: E402
     choose_device,
     run_matching,
 )
+from full_compare import FullSplitConfig, score_full, write_dual_report  # noqa: E402
+from full_item_fetch import fetch_item  # noqa: E402
 from scrape_title_candidates import (  # noqa: E402
     HEADERS,
     PRODUCT_SELECTOR,
@@ -64,6 +66,7 @@ SEARCHES = (
     "donna_accessori_gioielli",
 )
 CONDITION_IDS = {name.casefold(): status_id for status_id, name in STATUS_NAMES.items()}
+MAX_FULL_COMPARE_ATTEMPTS = 5
 MUSIQ_BAD_THRESHOLD = 55.0
 # Phone photos score lower across the board, so they need their own cut.
 SEARCH_MUSIQ_THRESHOLDS = {"telefoni": 65.0}
@@ -78,29 +81,37 @@ class SplitConfig:
 
 
 class RequestPacer:
-    def __init__(self, gap_seconds: float):
+    def __init__(self, gap_seconds: float, label: str = "catalog"):
         self.gap_seconds = gap_seconds
+        self.label = label
         self.last_request_at: float | None = None
 
     def wait(self) -> None:
         if self.last_request_at is not None:
             remaining = self.gap_seconds - (time.monotonic() - self.last_request_at)
             if remaining > 0:
-                LOG.info("Chill pace: waiting %.1fs before next catalog request", remaining)
+                LOG.info("Chill pace: waiting %.1fs before next %s request", remaining, self.label)
                 time.sleep(remaining)
         self.last_request_at = time.monotonic()
 
 
 class CatalogClient:
-    def __init__(self, gap_seconds: float):
+    def __init__(self, gap_seconds: float, block_pause_seconds: float = 600.0):
         self.session = cffi.Session(impersonate="chrome")
         self.pacer = RequestPacer(gap_seconds)
         self.scraper = Simple_scraper()
+        self.block_pause_seconds = block_pause_seconds
+        self.blocked_until = 0.0
+
+    def blocked_for(self) -> float:
+        """Seconds the item-page worker should stand down so the catalog loop recovers."""
+        return max(0.0, self.blocked_until - time.monotonic())
 
     def fetch_products(self, url: str, search_name: str) -> pd.DataFrame:
         self.pacer.wait()
         response = self.session.get(url, headers=HEADERS, timeout=30)
         if response.status_code != 200:
+            self.blocked_until = time.monotonic() + self.block_pause_seconds
             LOG.warning("%s blocked/failed: HTTP %s; no immediate retry", search_name, response.status_code)
             return pd.DataFrame()
         products = requests_html.HTML(html=response.text).find(PRODUCT_SELECTOR)
@@ -303,7 +314,7 @@ def start_report_server(root: Path, port: int) -> ThreadingHTTPServer:
     return server
 
 
-async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: float) -> None:
+async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: float) -> dict | None:
     from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.constants import ParseMode
 
@@ -326,9 +337,52 @@ async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: fl
     bot = Bot(str(token))
     image = str(target.get("Images") or "")
     if image.startswith(("http://", "https://")):
-        await bot.send_photo(chat_id=chat_id, photo=image, caption=caption, parse_mode=ParseMode.HTML, reply_markup=keyboard)
-    else:
-        await bot.send_message(chat_id=chat_id, text=caption, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        try:
+            message = await bot.send_photo(chat_id=chat_id, photo=image, caption=caption, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            return {"chat_id": chat_id, "message_id": message.message_id, "kind": "photo", "caption": caption,
+                    "link": str(target["Link"]), "report_url": report_url}
+        except Exception as exc:  # expired CDN signature, unreachable image, ...
+            LOG.warning("Photo alert failed (%s); falling back to text", exc)
+    message = await bot.send_message(chat_id=chat_id, text=caption, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    return {"chat_id": chat_id, "message_id": message.message_id, "kind": "text", "caption": caption,
+            "link": str(target["Link"]), "report_url": report_url}
+
+
+async def append_full_verdict(handle: dict, analysis: dict, report_url: str) -> None:
+    """Edit the original alert so it carries both verdicts; reply if the edit is refused."""
+    from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.constants import ParseMode
+
+    median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
+    discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
+    extra = (
+        f"\n<b>Full data:</b> {html.escape(analysis['verdict'])}\n"
+        f"Kept {analysis['count']} · median {median} · discount {discount}"
+    )
+    bot = Bot(str(settings.telegram.bot_token))
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Vinted", url=handle["link"]),
+        InlineKeyboardButton("Comparison", url=report_url),
+    ]])
+    text = f"{handle['caption']}{extra}"
+    try:
+        if handle["kind"] == "photo":
+            await bot.edit_message_caption(
+                chat_id=handle["chat_id"], message_id=handle["message_id"],
+                caption=text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
+            )
+        else:
+            await bot.edit_message_text(
+                chat_id=handle["chat_id"], message_id=handle["message_id"],
+                text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
+            )
+        return
+    except Exception as exc:
+        LOG.warning("Could not edit alert %s (%s); replying instead", handle["message_id"], exc)
+    await bot.send_message(
+        chat_id=handle["chat_id"], text=extra.strip(), parse_mode=ParseMode.HTML,
+        reply_to_message_id=handle["message_id"], reply_markup=keyboard,
+    )
 
 
 class Monitor:
@@ -337,7 +391,7 @@ class Monitor:
         self.output = args.out_dir
         self.reports = self.output / "reports"
         self.state = JsonState(self.output / "state.json")
-        self.client = CatalogClient(args.gap_seconds)
+        self.client = CatalogClient(args.gap_seconds, args.catalog_block_pause)
         self.searches = load_searches(str(settings.paths.searches_yaml))
         missing = [name for name in SEARCHES if name not in self.searches]
         if missing:
@@ -346,6 +400,11 @@ class Monitor:
         self.title_encoder = None
         self.image_encoder = None
         self.device = choose_device(args.device)
+        self.queue_path = self.output / "full_compare_queue.json"
+        self.queue_lock = threading.Lock()
+        self.encoder_lock = threading.Lock()
+        self.full_session = cffi.Session(impersonate="chrome")
+        self.full_pacer = RequestPacer(args.full_gap_seconds, "item page")
 
     def score_musiq(self, image_path: Path) -> float:
         if self.metric is None:
@@ -374,7 +433,7 @@ class Monitor:
             self.image_encoder = DINOImageEncoder(self.args.image_model, self.device)
         return self.title_encoder, self.image_encoder
 
-    def analyze(self, target: dict, target_image: Path, musiq: float) -> tuple[dict, str]:
+    def analyze(self, target: dict, target_image: Path, musiq: float) -> tuple[dict, str, pd.DataFrame]:
         status_id = str(target.get("ConditionStatusId") or "")
         if status_id not in STATUS_NAMES:
             candidates = pd.DataFrame(columns=["Dataid", "Price", "Images", "Condition"])
@@ -384,7 +443,7 @@ class Monitor:
                 "candidate_item_id", "candidate_title", "listing_url", "title_similarity",
                 "image_similarity", "combined_score", "combined_rank", "decision", "reason",
             ]), candidates, analysis, musiq)
-            return analysis, report.name
+            return analysis, report.name, candidates
 
         candidates = self.client.title_search(str(target["Title"]), status_id)
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
@@ -396,21 +455,22 @@ class Monitor:
                 "image_similarity", "combined_score", "combined_rank",
             ])
         else:
-            title_encoder, image_encoder = self.encoders()
-            ranked = run_matching(
-                MatchConfig(
-                    target_item_id=str(target["Dataid"]),
-                    target_title=str(target["Title"]),
-                    target_image=str(target_image),
-                    candidates=candidate_path,
-                    out_dir=candidate_path.parent / "matcher",
-                    cache_dir=self.output / "embedding_cache",
-                    top_k=self.args.top_k,
-                    device=self.device,
-                ),
-                title_encoder,
-                image_encoder,
-            )
+            with self.encoder_lock:  # the full-compare worker shares these models
+                title_encoder, image_encoder = self.encoders()
+                ranked = run_matching(
+                    MatchConfig(
+                        target_item_id=str(target["Dataid"]),
+                        target_title=str(target["Title"]),
+                        target_image=str(target_image),
+                        candidates=candidate_path,
+                        out_dir=candidate_path.parent / "matcher",
+                        cache_dir=self.output / "embedding_cache",
+                        top_k=self.args.top_k,
+                        device=self.device,
+                    ),
+                    title_encoder,
+                    image_encoder,
+                )
         split = provisional_split(ranked, SplitConfig(
             self.args.title_min, self.args.image_min, self.args.combined_min,
             self.args.min_kept,
@@ -420,7 +480,144 @@ class Monitor:
         analysis = price_analysis(float(target["Price"]), prices, self.args.min_kept)
         report = self.reports / f"{target['Dataid']}.html"
         write_mobile_report(report, target, split, candidates, analysis, musiq)
-        return analysis, report.name
+        split.to_csv(candidate_path.parent / "split.csv", index=False)
+        return analysis, report.name, candidates
+
+    def in_price_band(self, target_price: float, candidates: pd.DataFrame, target_id: str) -> list[str]:
+        """Full-page fetches are expensive, so skip candidates priced absurdly far from the target.
+
+        The title search returns the target itself, which run_matching also drops.
+        """
+        prices = pd.to_numeric(candidates["Price"], errors="coerce")
+        band = self.args.price_band
+        ids = candidates["Dataid"].astype(str)
+        keep = prices.between(target_price / band, target_price * band) & ids.ne(str(target_id))
+        return ids[keep].tolist()
+
+    def _queue_read(self) -> list[dict]:
+        if not self.queue_path.exists():
+            return []
+        try:
+            jobs = json.loads(self.queue_path.read_text(encoding="utf-8"))
+            return jobs if isinstance(jobs, list) else []
+        except (OSError, json.JSONDecodeError):
+            LOG.exception("Unreadable full-compare queue %s", self.queue_path)
+            return []
+
+    def _queue_write(self, jobs: list[dict]) -> None:
+        temporary = self.queue_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(self.queue_path)
+
+    def enqueue_full_compare(self, job: dict) -> None:
+        with self.queue_lock:
+            jobs = self._queue_read()
+            jobs.append(job)
+            self._queue_write(jobs)
+        LOG.info("Queued full comparison for %s (%d waiting)", job["item_id"], len(jobs))
+
+    def _queue_head(self) -> dict | None:
+        with self.queue_lock:
+            jobs = self._queue_read()
+            return jobs[0] if jobs else None
+
+    def _queue_finish(self, item_id: str, requeue: bool = False) -> None:
+        with self.queue_lock:
+            jobs = self._queue_read()
+            if not jobs or str(jobs[0].get("item_id")) != str(item_id):
+                return
+            job = jobs.pop(0)
+            if requeue:
+                job["attempts"] = int(job.get("attempts", 0)) + 1
+                if job["attempts"] < MAX_FULL_COMPARE_ATTEMPTS:
+                    jobs.append(job)
+                else:
+                    LOG.warning("Giving up on full comparison for %s after %d attempts",
+                                item_id, job["attempts"])
+            self._queue_write(jobs)
+
+    def fetch_full_item(self, item_id: str) -> dict | None:
+        """One paced item-page fetch, standing down whenever the catalog loop is blocked."""
+        while True:
+            blocked = self.client.blocked_for()
+            if blocked <= 0:
+                break
+            LOG.info("Catalog blocked; item-page worker waiting %.0fs", blocked)
+            time.sleep(min(blocked, 60.0))
+        self.full_pacer.wait()
+        return fetch_item(
+            self.full_session,
+            item_id,
+            self.output / "full_items",
+            HEADERS,
+            on_status=lambda status: status != 200 and LOG.warning("Item page %s: HTTP %s", item_id, status),
+        )
+
+    def run_full_compare(self, job: dict) -> bool:
+        item_id = str(job["item_id"])
+        matches = self.output / "matches" / item_id
+        split_path = matches / "split.csv"
+        if not split_path.exists():
+            LOG.warning("No stored catalog split for %s; dropping job", item_id)
+            return True
+
+        target_full = self.fetch_full_item(item_id)
+        if target_full is None:
+            LOG.warning("Target page %s unavailable; will retry later", item_id)
+            return False
+
+        fulls = []
+        for candidate_id in job["candidate_ids"]:
+            data = self.fetch_full_item(str(candidate_id))
+            if data is not None:
+                fulls.append(data)
+        LOG.info("%s: fetched %d/%d candidate pages", item_id, len(fulls), len(job["candidate_ids"]))
+        if not fulls:
+            return False
+
+        with self.encoder_lock:
+            title_encoder, image_encoder = self.encoders()
+            rows_b = score_full(
+                target_full, fulls, title_encoder, image_encoder,
+                self.args.title_model, self.args.image_model,
+                cache_dir=self.output / "embedding_cache",
+                download_dir=matches / "full_photos",
+                config=FullSplitConfig(
+                    photo_min=self.args.full_photo_min,
+                    title_min=self.args.full_title_min,
+                    combined_min=self.args.full_combined_min,
+                    max_photos=self.args.max_photos,
+                ),
+            )
+        rows_b.to_csv(matches / "split_full.csv", index=False)
+
+        target = job["target"]
+        kept = rows_b.loc[rows_b["decision"].eq("kept"), "price"]
+        analysis_b = price_analysis(float(target["Price"]), kept, self.args.min_kept)
+        write_dual_report(
+            self.reports / f"{item_id}.html", target, float(job["musiq"]),
+            pd.read_csv(split_path), rows_b, job["analysis_a"], analysis_b,
+        )
+        LOG.info("%s: full comparison done (catalog kept %d, full kept %d)",
+                 item_id, job["analysis_a"]["count"], analysis_b["count"])
+        if job.get("handle") and not self.args.dry_run:
+            asyncio.run(append_full_verdict(job["handle"], analysis_b, job["report_url"]))
+        return True
+
+    def full_compare_worker(self) -> None:
+        while True:
+            job = self._queue_head()
+            if job is None:
+                time.sleep(30)
+                continue
+            try:
+                done = self.run_full_compare(job)
+            except Exception:
+                LOG.exception("Full comparison failed for %s", job.get("item_id"))
+                done = False
+            self._queue_finish(job["item_id"], requeue=not done)
+            if not done:
+                time.sleep(60)
 
     def process_search(self, name: str) -> None:
         page = self.client.search_page(name, self.searches[name])
@@ -450,15 +647,29 @@ class Monitor:
             if musiq >= threshold:
                 self.state.add_many("seen", [item_id])
                 continue
-            analysis, report_name = self.analyze(target, image_path, musiq)
+            analysis, report_name, candidates = self.analyze(target, image_path, musiq)
             report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(report_name)}"
             LOG.info("BAD %s | %s | %s", item_id, analysis["verdict"], report_url)
+            handle = None
             if not self.args.dry_run:
-                asyncio.run(send_telegram(target, analysis, report_url, musiq))
+                handle = asyncio.run(send_telegram(target, analysis, report_url, musiq))
                 self.state.add_many("sent", [item_id])
             self.state.add_many("seen", [item_id])
+            if self.args.full_compare and not candidates.empty:
+                self.enqueue_full_compare({
+                    "item_id": item_id,
+                    "musiq": musiq,
+                    "report_url": report_url,
+                    "analysis_a": analysis,
+                    "handle": handle,
+                    "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id),
+                    "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
+                    "attempts": 0,
+                })
 
     def run(self) -> None:
+        if self.args.full_compare:
+            threading.Thread(target=self.full_compare_worker, daemon=True).start()
         while True:
             for name in SEARCHES:
                 self.process_search(name)
@@ -481,6 +692,16 @@ def parse_args():
     parser.add_argument("--image-min", type=float, default=0.55)
     parser.add_argument("--combined-min", type=float, default=0.70)
     parser.add_argument("--min-kept", type=int, default=3)
+    parser.add_argument("--full-gap-seconds", type=float, default=90.0)
+    parser.add_argument("--catalog-block-pause", type=float, default=600.0)
+    parser.add_argument("--price-band", type=float, default=10.0,
+                        help="skip candidates priced beyond this multiple of the target price")
+    parser.add_argument("--max-photos", type=int, default=8)
+    parser.add_argument("--full-photo-min", type=float, default=0.60)
+    parser.add_argument("--full-title-min", type=float, default=0.75)
+    parser.add_argument("--full-combined-min", type=float, default=0.68)
+    parser.add_argument("--no-full-compare", dest="full_compare", action="store_false")
+    parser.set_defaults(full_compare=True)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prime-first-cycle", dest="prime_first_cycle", action="store_false")
@@ -488,6 +709,8 @@ def parse_args():
     args = parser.parse_args()
     if args.gap_seconds < 0 or args.top_k < 1 or args.min_kept < 1:
         parser.error("gap must be >= 0; top-k and min-kept must be >= 1")
+    if args.full_gap_seconds < 0 or args.max_photos < 1 or args.price_band <= 1:
+        parser.error("full-gap must be >= 0; max-photos >= 1; price-band > 1")
     for value in (args.title_min, args.image_min, args.combined_min):
         if not -1 <= value <= 1:
             parser.error("similarity floors must be between -1 and 1")
