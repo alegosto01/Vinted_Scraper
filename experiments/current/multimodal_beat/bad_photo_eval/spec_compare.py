@@ -165,6 +165,17 @@ def compare_specs(target: dict, candidates: list[dict], cache_dir: Path, client=
                 except Exception:
                     LOG.exception("Spec comparison failed for %s", item.get("item_id"))
 
+    # The model sometimes drops candidates from a batch reply; ask again for those.
+    seen = {str(verdict.get("id")) for verdict in verdicts}
+    missing = [item for item in candidates if str(item["item_id"]) not in seen]
+    if missing:
+        LOG.info("Re-asking for %d candidates missing from the batch replies", len(missing))
+        for start in range(0, len(missing), 4):
+            try:
+                verdicts.extend(_ask(client, target, missing[start:start + 4]))
+            except Exception:
+                LOG.exception("Retry batch failed")
+
     if not verdicts:
         return pd.DataFrame(columns=columns)
 
@@ -198,3 +209,38 @@ def usable_comparables(rows: pd.DataFrame) -> pd.DataFrame:
 def comparable_prices(rows: pd.DataFrame) -> pd.Series:
     usable = usable_comparables(rows)
     return pd.to_numeric(usable["price"], errors="coerce") if "price" in usable else pd.Series(dtype=float)
+
+
+REASON_LABELS = {
+    "miniature_or_sample": "miniature/sample",
+    "empty_box_or_accessory": "box or accessory only",
+    "wrong_variant": "different variant",
+    "for_parts": "for parts",
+    "replica": "replica",
+    "bundle": "bundle",
+}
+
+
+def verdict_summary(rows: pd.DataFrame) -> str:
+    """One line saying what was thrown away and why, for the alert itself."""
+    if rows.empty or "same_product" not in rows:
+        return ""
+    usable = usable_comparables(rows)
+    counts: dict[str, int] = {}
+    for _, row in rows.drop(usable.index, errors="ignore").iterrows():
+        raw = row.get("disqualifier")
+        disqualifier = "none" if raw is None or pd.isna(raw) else str(raw)
+        if pd.isna(row.get("same_product")):
+            label = "not judged"
+        elif disqualifier != "none":
+            label = REASON_LABELS.get(disqualifier, disqualifier)
+        elif not bool(row.get("full_size_equivalent", True)):
+            label = "not full size"
+        elif not bool(row.get("same_product", False)):
+            label = "different product"
+        else:
+            label = "other spec mismatch"
+        counts[label] = counts.get(label, 0) + 1
+    excluded = ", ".join(f"{count} {label}" for label, count in
+                         sorted(counts.items(), key=lambda item: -item[1]))
+    return f"{len(usable)} comparable of {len(rows)} judged" + (f" · excluded {excluded}" if excluded else "")

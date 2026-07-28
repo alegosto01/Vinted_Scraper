@@ -45,7 +45,7 @@ from match_vinted_products import (  # noqa: E402
 )
 from full_compare import FullSplitConfig, score_full, write_dual_report  # noqa: E402
 from full_item_fetch import fetch_item  # noqa: E402
-from spec_compare import compare_specs, usable_comparables  # noqa: E402
+from spec_compare import compare_specs, usable_comparables, verdict_summary  # noqa: E402
 from title_query import rewrite_title  # noqa: E402
 from scrape_title_candidates import (  # noqa: E402
     HEADERS,
@@ -368,6 +368,7 @@ async def send_telegram(
     report_url: str,
     musiq: float,
     analysis_full: dict | None = None,
+    breakdown: str = "",
 ) -> dict | None:
     from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.constants import ParseMode
@@ -387,6 +388,8 @@ async def send_telegram(
             f"\n<b>Full data:</b> {html.escape(analysis_full['verdict'])}\n"
             f"{_price_line(analysis_full)}"
         )
+    if breakdown:
+        caption += f"\n<i>{html.escape(breakdown)}</i>"
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Vinted", url=str(target["Link"])),
         InlineKeyboardButton("Comparison", url=report_url),
@@ -453,7 +456,7 @@ class Monitor:
             self.image_encoder = DINOImageEncoder(self.args.image_model, self.device)
         return self.title_encoder, self.image_encoder
 
-    def analyze(self, target: dict, target_image: Path, musiq: float) -> tuple[dict, str, pd.DataFrame]:
+    def analyze(self, target: dict, target_image: Path, musiq: float) -> tuple[dict, str, pd.DataFrame, str]:
         status_id = str(target.get("ConditionStatusId") or "")
         if status_id not in STATUS_NAMES:
             candidates = pd.DataFrame(columns=["Dataid", "Price", "Images", "Condition"])
@@ -463,14 +466,16 @@ class Monitor:
                 "candidate_item_id", "candidate_title", "listing_url", "title_similarity",
                 "image_similarity", "combined_score", "combined_rank", "decision", "reason",
             ]), candidates, analysis, musiq)
-            return analysis, report.name, candidates
+            return analysis, report.name, candidates, "low"
 
         query = str(target["Title"])
+        confidence = "unknown"
         if self.args.smart_query:
             rewrite = rewrite_title(query, self.output / "title_queries", brand=target.get("Brand"))
             if rewrite["query"] != query:
                 LOG.info("Query rewritten: %r -> %r [%s]", query, rewrite["query"], rewrite["confidence"])
             query = rewrite["query"]
+            confidence = rewrite["confidence"]
         candidates = self.client.title_search(str(target["Title"]), status_id, query=query)
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
@@ -507,7 +512,7 @@ class Monitor:
         report = self.reports / f"{target['Dataid']}.html"
         write_mobile_report(report, target, split, candidates, analysis, musiq)
         split.to_csv(candidate_path.parent / "split.csv", index=False)
-        return analysis, report.name, candidates
+        return analysis, report.name, candidates, confidence
 
     def in_price_band(self, target_price: float, candidates: pd.DataFrame, target_id: str) -> list[str]:
         """Full-page fetches are expensive, so skip candidates priced absurdly far from the target.
@@ -660,11 +665,22 @@ class Monitor:
             self.reports / f"{item_id}.html", target, float(job["musiq"]),
             pd.read_csv(split_path), rows_b, job["analysis_a"], analysis_b,
         )
-        LOG.info("%s: full comparison done (catalog kept %d, full kept %d)",
-                 item_id, job["analysis_a"]["count"], analysis_b["count"])
+        breakdown = verdict_summary(rows_b) if self.args.spec_compare else ""
+        LOG.info("%s: full comparison done (catalog kept %d, full kept %d) %s",
+                 item_id, job["analysis_a"]["count"], analysis_b["count"], breakdown)
+
+        # A title that names no product cannot produce comparables worth reading.
+        if (job.get("title_confidence") == "low"
+                and analysis_b["count"] < self.args.min_kept
+                and self.args.skip_undecidable):
+            LOG.info("%s: skipping alert - vague title %r and only %d comparable(s)",
+                     item_id, job["target"]["Title"], analysis_b["count"])
+            return True
+
         if not self.args.dry_run:
             asyncio.run(send_telegram(
                 target, job["analysis_a"], job["report_url"], float(job["musiq"]), analysis_b,
+                breakdown=breakdown,
             ))
             self.state.add_many("sent", [item_id])
         return True
@@ -712,7 +728,7 @@ class Monitor:
             if musiq >= threshold:
                 self.state.add_many("seen", [item_id])
                 continue
-            analysis, report_name, candidates = self.analyze(target, image_path, musiq)
+            analysis, report_name, candidates, confidence = self.analyze(target, image_path, musiq)
             report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(report_name)}"
             LOG.info("BAD %s | %s | %s", item_id, analysis["verdict"], report_url)
             self.state.add_many("seen", [item_id])
@@ -726,6 +742,7 @@ class Monitor:
                     "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id)
                     if not candidates.empty else [],
                     "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
+                    "title_confidence": confidence,
                     "attempts": 0,
                 })
             elif not self.args.dry_run:
@@ -772,7 +789,9 @@ def parse_args():
                         help="search with the raw listing title instead of the rewritten query")
     parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
                         help="decide comparables from embeddings alone, without the model")
-    parser.set_defaults(full_compare=True, smart_query=True, spec_compare=True)
+    parser.add_argument("--no-skip-undecidable", dest="skip_undecidable", action="store_false",
+                        help="alert even when the title names no product and comparables are too few")
+    parser.set_defaults(full_compare=True, smart_query=True, spec_compare=True, skip_undecidable=True)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prime-first-cycle", dest="prime_first_cycle", action="store_false")
