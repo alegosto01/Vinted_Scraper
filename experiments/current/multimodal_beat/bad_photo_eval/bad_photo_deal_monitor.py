@@ -314,7 +314,19 @@ def start_report_server(root: Path, port: int) -> ThreadingHTTPServer:
     return server
 
 
-async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: float) -> dict | None:
+def _price_line(analysis: dict) -> str:
+    median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
+    discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
+    return f"kept {analysis['count']} · median {median} · discount {discount}"
+
+
+async def send_telegram(
+    target: dict,
+    analysis: dict,
+    report_url: str,
+    musiq: float,
+    analysis_full: dict | None = None,
+) -> dict | None:
     from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.constants import ParseMode
 
@@ -322,14 +334,17 @@ async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: fl
     chat_id = settings.telegram.resolved_recommended_deals_chat_id
     if not token or chat_id is None:
         raise RuntimeError("Telegram bot token/chat is not configured")
-    median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
-    discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
     caption = (
         f"<b>Bad-photo candidate: {html.escape(str(target['Title']))}</b>\n"
         f"€{float(target['Price']):.2f} · {html.escape(str(target['Condition']))} · MUSIQ {musiq:.1f}\n"
-        f"{html.escape(analysis['verdict'])}\n"
-        f"Kept {analysis['count']} · median {median} · discount {discount}"
+        f"<b>Catalog data:</b> {html.escape(analysis['verdict'])}\n"
+        f"{_price_line(analysis)}"
     )
+    if analysis_full is not None:
+        caption += (
+            f"\n<b>Full data:</b> {html.escape(analysis_full['verdict'])}\n"
+            f"{_price_line(analysis_full)}"
+        )
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Vinted", url=str(target["Link"])),
         InlineKeyboardButton("Comparison", url=report_url),
@@ -346,43 +361,6 @@ async def send_telegram(target: dict, analysis: dict, report_url: str, musiq: fl
     message = await bot.send_message(chat_id=chat_id, text=caption, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     return {"chat_id": chat_id, "message_id": message.message_id, "kind": "text", "caption": caption,
             "link": str(target["Link"]), "report_url": report_url}
-
-
-async def append_full_verdict(handle: dict, analysis: dict, report_url: str) -> None:
-    """Edit the original alert so it carries both verdicts; reply if the edit is refused."""
-    from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.constants import ParseMode
-
-    median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
-    discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
-    extra = (
-        f"\n<b>Full data:</b> {html.escape(analysis['verdict'])}\n"
-        f"Kept {analysis['count']} · median {median} · discount {discount}"
-    )
-    bot = Bot(str(settings.telegram.bot_token))
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Vinted", url=handle["link"]),
-        InlineKeyboardButton("Comparison", url=report_url),
-    ]])
-    text = f"{handle['caption']}{extra}"
-    try:
-        if handle["kind"] == "photo":
-            await bot.edit_message_caption(
-                chat_id=handle["chat_id"], message_id=handle["message_id"],
-                caption=text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
-            )
-        else:
-            await bot.edit_message_text(
-                chat_id=handle["chat_id"], message_id=handle["message_id"],
-                text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard,
-            )
-        return
-    except Exception as exc:
-        LOG.warning("Could not edit alert %s (%s); replying instead", handle["message_id"], exc)
-    await bot.send_message(
-        chat_id=handle["chat_id"], text=extra.strip(), parse_mode=ParseMode.HTML,
-        reply_to_message_id=handle["message_id"], reply_markup=keyboard,
-    )
 
 
 class Monitor:
@@ -577,23 +555,25 @@ class Monitor:
             if data is not None:
                 fulls.append(data)
         LOG.info("%s: fetched %d/%d candidate pages", item_id, len(fulls), len(job["candidate_ids"]))
-        if not fulls:
+        if not fulls and job["candidate_ids"]:
             return False
 
-        with self.encoder_lock:
-            title_encoder, image_encoder = self.encoders()
-            rows_b = score_full(
-                target_full, fulls, title_encoder, image_encoder,
-                self.args.title_model, self.args.image_model,
-                cache_dir=self.output / "embedding_cache",
-                download_dir=matches / "full_photos",
-                config=FullSplitConfig(
-                    photo_min=self.args.full_photo_min,
-                    title_min=self.args.full_title_min,
-                    combined_min=self.args.full_combined_min,
-                    max_photos=self.args.max_photos,
-                ),
-            )
+        rows_b = pd.DataFrame(columns=["candidate_item_id", "decision", "price"])
+        if fulls:
+            with self.encoder_lock:
+                title_encoder, image_encoder = self.encoders()
+                rows_b = score_full(
+                    target_full, fulls, title_encoder, image_encoder,
+                    self.args.title_model, self.args.image_model,
+                    cache_dir=self.output / "embedding_cache",
+                    download_dir=matches / "full_photos",
+                    config=FullSplitConfig(
+                        photo_min=self.args.full_photo_min,
+                        title_min=self.args.full_title_min,
+                        combined_min=self.args.full_combined_min,
+                        max_photos=self.args.max_photos,
+                    ),
+                )
         rows_b.to_csv(matches / "split_full.csv", index=False)
 
         target = job["target"]
@@ -605,8 +585,11 @@ class Monitor:
         )
         LOG.info("%s: full comparison done (catalog kept %d, full kept %d)",
                  item_id, job["analysis_a"]["count"], analysis_b["count"])
-        if job.get("handle") and not self.args.dry_run:
-            asyncio.run(append_full_verdict(job["handle"], analysis_b, job["report_url"]))
+        if not self.args.dry_run:
+            asyncio.run(send_telegram(
+                target, job["analysis_a"], job["report_url"], float(job["musiq"]), analysis_b,
+            ))
+            self.state.add_many("sent", [item_id])
         return True
 
     def full_compare_worker(self) -> None:
@@ -655,22 +638,22 @@ class Monitor:
             analysis, report_name, candidates = self.analyze(target, image_path, musiq)
             report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(report_name)}"
             LOG.info("BAD %s | %s | %s", item_id, analysis["verdict"], report_url)
-            handle = None
-            if not self.args.dry_run:
-                handle = asyncio.run(send_telegram(target, analysis, report_url, musiq))
-                self.state.add_many("sent", [item_id])
             self.state.add_many("seen", [item_id])
-            if self.args.full_compare and not candidates.empty:
+            if self.args.full_compare:
+                # The alert waits for the full comparison; the worker sends it.
                 self.enqueue_full_compare({
                     "item_id": item_id,
                     "musiq": musiq,
                     "report_url": report_url,
                     "analysis_a": analysis,
-                    "handle": handle,
-                    "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id),
+                    "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id)
+                    if not candidates.empty else [],
                     "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
                     "attempts": 0,
                 })
+            elif not self.args.dry_run:
+                asyncio.run(send_telegram(target, analysis, report_url, musiq))
+                self.state.add_many("sent", [item_id])
 
     def run(self) -> None:
         if self.args.full_compare:
