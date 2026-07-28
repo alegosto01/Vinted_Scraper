@@ -6,7 +6,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
 Environment=MPLCONFIGDIR=/tmp/matplotlib-bad-photo-monitor
-ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python /home/ale/Desktop/vinted/Vinted_New_Version/experiments/current/multimodal_beat/bad_photo_eval/bad_photo_deal_monitor.py --public-base-url https://ale-hkd-wxx.tailc0437a.ts.net
+ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python /home/ale/Desktop/vinted/Vinted_New_Version/experiments/current/multimodal_beat/bad_photo_eval/bad_photo_deal_monitor.py --public-base-url https://ale-hkd-wxx.tailc0437a.ts.net --no-full-compare
 Restart=always
 RestartSec=60
 

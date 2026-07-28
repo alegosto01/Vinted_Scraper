@@ -505,6 +505,8 @@ class Monitor:
             return []
 
     def _queue_write(self, jobs: list[dict]) -> None:
+        """Worst photo first: the whole point of the queue is the badly shot listings."""
+        jobs = sorted(jobs, key=lambda job: float(job.get("musiq", 0.0)))
         temporary = self.queue_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8")
         temporary.replace(self.queue_path)
@@ -514,27 +516,30 @@ class Monitor:
             jobs = self._queue_read()
             jobs.append(job)
             self._queue_write(jobs)
-        LOG.info("Queued full comparison for %s (%d waiting)", job["item_id"], len(jobs))
+        LOG.info("Queued full comparison for %s at MUSIQ %.1f (%d waiting)",
+                 job["item_id"], job["musiq"], len(jobs))
 
     def _queue_head(self) -> dict | None:
         with self.queue_lock:
-            jobs = self._queue_read()
+            jobs = sorted(self._queue_read(), key=lambda job: float(job.get("musiq", 0.0)))
             return jobs[0] if jobs else None
 
     def _queue_finish(self, item_id: str, requeue: bool = False) -> None:
         with self.queue_lock:
             jobs = self._queue_read()
-            if not jobs or str(jobs[0].get("item_id")) != str(item_id):
+            remaining = [job for job in jobs if str(job.get("item_id")) != str(item_id)]
+            done = [job for job in jobs if str(job.get("item_id")) == str(item_id)]
+            if not done:
                 return
-            job = jobs.pop(0)
+            job = done[0]
             if requeue:
                 job["attempts"] = int(job.get("attempts", 0)) + 1
                 if job["attempts"] < MAX_FULL_COMPARE_ATTEMPTS:
-                    jobs.append(job)
+                    remaining.append(job)
                 else:
                     LOG.warning("Giving up on full comparison for %s after %d attempts",
                                 item_id, job["attempts"])
-            self._queue_write(jobs)
+            self._queue_write(remaining)
 
     def fetch_full_item(self, item_id: str) -> dict | None:
         """One paced item-page fetch, standing down whenever the catalog loop is blocked."""
