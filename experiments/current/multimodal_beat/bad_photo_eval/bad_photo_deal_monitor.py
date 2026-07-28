@@ -45,6 +45,8 @@ from match_vinted_products import (  # noqa: E402
 )
 from full_compare import FullSplitConfig, score_full, write_dual_report  # noqa: E402
 from full_item_fetch import fetch_item  # noqa: E402
+from spec_compare import compare_specs, usable_comparables  # noqa: E402
+from title_query import rewrite_title  # noqa: E402
 from scrape_title_candidates import (  # noqa: E402
     HEADERS,
     PRODUCT_SELECTOR,
@@ -96,23 +98,62 @@ class RequestPacer:
 
 
 class CatalogClient:
-    def __init__(self, gap_seconds: float, block_pause_seconds: float = 600.0):
+    def __init__(self, gap_seconds: float, block_pause_seconds: float = 600.0,
+                 fallback_seconds: float = 600.0):
         self.session = cffi.Session(impersonate="chrome")
         self.pacer = RequestPacer(gap_seconds)
         self.scraper = Simple_scraper()
         self.block_pause_seconds = block_pause_seconds
+        self.fallback_seconds = fallback_seconds
         self.blocked_until = 0.0
+        self.fallback_until = 0.0
+        self.datacenter: object | None = None
+
+    def _datacenter_session(self):
+        if self.datacenter is None:
+            proxy = settings.proxy.datacenter_proxy_url
+            if not proxy:
+                LOG.warning("No datacenter proxy configured; cannot fall back")
+                return None
+            self.datacenter = cffi.Session(
+                impersonate="chrome", proxies={"http": proxy, "https": proxy}, verify=False
+            )
+        return self.datacenter
+
+    def transport(self):
+        """Own IP normally; the paid datacenter proxy for a window after a block."""
+        if time.monotonic() < self.fallback_until:
+            session = self._datacenter_session()
+            if session is not None:
+                return session, "datacenter"
+        return self.session, "direct"
+
+    def note_block(self) -> None:
+        now = time.monotonic()
+        self.blocked_until = now + self.block_pause_seconds
+        self.fallback_until = now + self.fallback_seconds
+        LOG.warning("Blocked; switching to datacenter proxy for %.0fs", self.fallback_seconds)
 
     def blocked_for(self) -> float:
-        """Seconds the item-page worker should stand down so the catalog loop recovers."""
+        """Seconds the item-page worker should wait - zero while the proxy is covering us."""
+        if time.monotonic() < self.fallback_until and self._datacenter_session() is not None:
+            return 0.0
         return max(0.0, self.blocked_until - time.monotonic())
 
     def fetch_products(self, url: str, search_name: str) -> pd.DataFrame:
-        self.pacer.wait()
-        response = self.session.get(url, headers=HEADERS, timeout=30)
+        session, label = self.transport()
+        if label == "direct":
+            self.pacer.wait()
+        response = session.get(url, headers=HEADERS, timeout=40)
+        if response.status_code != 200 and label == "direct":
+            self.note_block()
+            session, label = self.transport()
+            if label == "datacenter":
+                LOG.info("%s: retrying through the datacenter proxy", search_name)
+                response = session.get(url, headers=HEADERS, timeout=40)
         if response.status_code != 200:
-            self.blocked_until = time.monotonic() + self.block_pause_seconds
-            LOG.warning("%s blocked/failed: HTTP %s; no immediate retry", search_name, response.status_code)
+            LOG.warning("%s blocked/failed on %s: HTTP %s; no immediate retry",
+                        search_name, label, response.status_code)
             return pd.DataFrame()
         products = requests_html.HTML(html=response.text).find(PRODUCT_SELECTOR)
         if not products:
@@ -135,8 +176,9 @@ class CatalogClient:
         config.sort = "newest_first"
         return self.fetch_products(self.scraper.create_webpage(config) + "&page=1", name)
 
-    def title_search(self, title: str, status_id: str) -> pd.DataFrame:
-        rows = self.fetch_products(catalog_url(title, status_id, 1), title)
+    def title_search(self, title: str, status_id: str, query: str | None = None) -> pd.DataFrame:
+        query = (query or title).strip() or title
+        rows = self.fetch_products(catalog_url(query, status_id, 1), query)
         if rows.empty:
             return rows
         expected = STATUS_NAMES[status_id]
@@ -369,7 +411,7 @@ class Monitor:
         self.output = args.out_dir
         self.reports = self.output / "reports"
         self.state = JsonState(self.output / "state.json")
-        self.client = CatalogClient(args.gap_seconds, args.catalog_block_pause)
+        self.client = CatalogClient(args.gap_seconds, args.catalog_block_pause, args.fallback_seconds)
         self.searches = load_searches(str(settings.paths.searches_yaml))
         missing = [name for name in SEARCHES if name not in self.searches]
         if missing:
@@ -423,7 +465,13 @@ class Monitor:
             ]), candidates, analysis, musiq)
             return analysis, report.name, candidates
 
-        candidates = self.client.title_search(str(target["Title"]), status_id)
+        query = str(target["Title"])
+        if self.args.smart_query:
+            rewrite = rewrite_title(query, self.output / "title_queries", brand=target.get("Brand"))
+            if rewrite["query"] != query:
+                LOG.info("Query rewritten: %r -> %r [%s]", query, rewrite["query"], rewrite["confidence"])
+            query = rewrite["query"]
+        candidates = self.client.title_search(str(target["Title"]), status_id, query=query)
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_path, index=False)
@@ -520,21 +568,48 @@ class Monitor:
             self._queue_write(remaining)
 
     def fetch_full_item(self, item_id: str) -> dict | None:
-        """One paced item-page fetch, standing down whenever the catalog loop is blocked."""
+        """One item-page fetch: paced on our own IP, unpaced through the proxy."""
         while True:
             blocked = self.client.blocked_for()
             if blocked <= 0:
                 break
             LOG.info("Catalog blocked; item-page worker waiting %.0fs", blocked)
             time.sleep(min(blocked, 60.0))
-        self.full_pacer.wait()
-        return fetch_item(
-            self.full_session,
-            item_id,
-            self.output / "full_items",
-            HEADERS,
-            on_status=lambda status: status != 200 and LOG.warning("Item page %s: HTTP %s", item_id, status),
+
+        session, label = self.client.transport()
+        if label == "direct":
+            session = self.full_session
+            self.full_pacer.wait()
+
+        def on_status(status: int) -> None:
+            if status == 200:
+                return
+            LOG.warning("Item page %s on %s: HTTP %s", item_id, label, status)
+            if label == "direct":
+                self.client.note_block()
+
+        return fetch_item(session, item_id, self.output / "full_items", HEADERS, on_status=on_status)
+
+    def judge_specs(self, target_full: dict, fulls: list[dict], rows_b: pd.DataFrame) -> pd.DataFrame:
+        """Let the model decide what is genuinely comparable; embeddings only shortlist."""
+        verdicts = compare_specs(target_full, fulls, self.output / "spec_cache")
+        if verdicts.empty:
+            LOG.warning("No spec verdicts; keeping the embedding decision")
+            return rows_b
+        rows = rows_b.copy()
+        rows["embedding_decision"] = rows["decision"]
+        rows["candidate_item_id"] = rows["candidate_item_id"].astype(str)
+        rows = rows.merge(verdicts, on="candidate_item_id", how="left")
+        usable = set(usable_comparables(rows)["candidate_item_id"])
+        rows["decision"] = np.where(rows["candidate_item_id"].isin(usable), "kept", "non_kept")
+        rows["reason"] = np.where(
+            rows["candidate_item_id"].isin(usable),
+            "same product, full size, no disqualifier",
+            rows["disqualifier"].fillna("not judged").replace("none", "different product")
+            + rows["note"].fillna("").radd(": ").where(rows["note"].fillna("").ne(""), ""),
         )
+        LOG.info("Spec pass: %d of %d candidates usable as comparables", len(usable), len(rows))
+        return rows
 
     def run_full_compare(self, job: dict) -> bool:
         item_id = str(job["item_id"])
@@ -574,10 +649,12 @@ class Monitor:
                         max_photos=self.args.max_photos,
                     ),
                 )
+        if self.args.spec_compare and not rows_b.empty:
+            rows_b = self.judge_specs(target_full, fulls, rows_b)
         rows_b.to_csv(matches / "split_full.csv", index=False)
 
         target = job["target"]
-        kept = rows_b.loc[rows_b["decision"].eq("kept"), "price"]
+        kept = rows_b.loc[rows_b["decision"].eq("kept"), "price"] if not rows_b.empty else pd.Series(dtype=float)
         analysis_b = price_analysis(float(target["Price"]), kept, self.args.min_kept)
         write_dual_report(
             self.reports / f"{item_id}.html", target, float(job["musiq"]),
@@ -688,8 +765,14 @@ def parse_args():
     parser.add_argument("--full-photo-min", type=float, default=0.60)
     parser.add_argument("--full-title-min", type=float, default=0.75)
     parser.add_argument("--full-combined-min", type=float, default=0.68)
+    parser.add_argument("--fallback-seconds", type=float, default=600.0,
+                        help="how long to route through the datacenter proxy after a block")
     parser.add_argument("--no-full-compare", dest="full_compare", action="store_false")
-    parser.set_defaults(full_compare=True)
+    parser.add_argument("--no-smart-query", dest="smart_query", action="store_false",
+                        help="search with the raw listing title instead of the rewritten query")
+    parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
+                        help="decide comparables from embeddings alone, without the model")
+    parser.set_defaults(full_compare=True, smart_query=True, spec_compare=True)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prime-first-cycle", dest="prime_first_cycle", action="store_false")
