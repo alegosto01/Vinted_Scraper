@@ -18,7 +18,9 @@ Nothing here touches the network.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -271,6 +273,102 @@ since sold or been removed.</p>
     print(f"wrote {out} ({len(frame)} cards)")
 
 
+HUNT_STATE = OUT_DIR / "hunt_state.json"
+
+
+def hunt(args) -> None:
+    """Liveness-check the worst-scoring listings on our own IP, then compare the survivors.
+
+    Everything here goes through the laptop's own connection at --gap seconds per request,
+    so it costs nothing and takes days. State is written after every listing, so stopping
+    it and starting it again loses nothing.
+    """
+    import json
+
+    from curl_cffi import requests as cffi
+
+    sys.path.insert(0, str(HERE))
+    import bad_photo_deal_monitor as monitor_module
+    import full_item_fetch as fif
+
+    state = json.loads(HUNT_STATE.read_text()) if HUNT_STATE.exists() else {}
+    frame = load_scored()
+    if args.max_musiq:
+        frame = frame[frame["musiq"] <= args.max_musiq]
+    if args.min_price:
+        frame = frame[frame["Price"] >= args.min_price]
+    todo = [row for row in frame.itertuples(index=False) if str(row.Dataid) not in state]
+    print(f"{len(frame)} candidates, {len(state)} already checked, {len(todo)} to go", flush=True)
+
+    session = cffi.Session(impersonate="chrome")
+    pacer = monitor_module.RequestPacer(args.gap, "item page")
+    cache = HERE / "data" / "deal_monitor" / "full_items"
+
+    sys.argv = ["hunt", "--once"] + ([] if args.telegram else ["--dry-run"])
+    monitor_args = monitor_module.parse_args()
+    monitor_args.max_candidates = args.max_candidates
+    monitor_args.fallback_seconds = 0.0  # never reach for the paid proxy
+    monitor_args.gap_seconds = args.gap
+    monitor_args.full_gap_seconds = args.gap
+    monitor = monitor_module.Monitor(monitor_args)
+
+    blocked_streak = 0
+    for row in todo:
+        item_id = str(row.Dataid)
+        # A 403 is a block, not a delisting: recording it as "gone" would quietly bury a
+        # live listing forever, so the item is retried instead of being written off.
+        while True:
+            pacer.wait()
+            status: list[int] = []
+            data = fif.fetch_item(session, item_id, cache, monitor_module.HEADERS,
+                                  on_status=status.append)
+            code = status[0] if status else 200  # no status means it came from cache
+            if code != 200:
+                blocked_streak += 1
+                backoff = min(args.block_backoff * blocked_streak, args.max_backoff)
+                print(f"{item_id}: HTTP {code}, blocked - waiting {backoff/60:.0f} min "
+                      f"(streak {blocked_streak})", flush=True)
+                time.sleep(backoff)
+                continue
+            blocked_streak = 0
+            break
+        alive = data is not None
+        state[item_id] = {"musiq": float(row.musiq), "price": float(row.Price),
+                          "live": alive, "checked_at": datetime.now().isoformat(timespec="seconds")}
+        HUNT_STATE.write_text(json.dumps(state, indent=1))
+        live_count = sum(1 for v in state.values() if v["live"])
+        print(f"{item_id} MUSIQ {row.musiq:.1f} EUR{row.Price:.0f} -> "
+              f"{'LIVE' if alive else 'gone'} ({live_count} live of {len(state)})", flush=True)
+        if not alive or not args.compare:
+            continue
+        try:
+            target = {"Title": data["title"], "Price": float(data.get("price") or 0),
+                      "Condition": str(data.get("condition") or ""),
+                      "Link": f"https://www.vinted.it/items/{item_id}",
+                      "Images": (data.get("photo_urls") or [""])[0]}
+            candidates, confidence, material = monitor.find_candidates(
+                {"Dataid": item_id, "Title": data["title"], "Brand": data.get("brand"),
+                 "ConditionStatusId": monitor_module.CONDITION_IDS.get(
+                     str(data.get("condition") or "").casefold(), "")})
+            if candidates.empty:
+                print("    no candidates", flush=True)
+                continue
+            job = {"item_id": item_id, "musiq": float(row.musiq),
+                   "report_url": f"{args.base_url}/{item_id}.html",
+                   "target": target, "title_confidence": confidence, "material": material,
+                   "candidate_ids": monitor.in_price_band(target["Price"], candidates, item_id),
+                   "attempts": 0}
+            monitor.run_full_compare(job)
+            state[item_id]["compared"] = True
+            HUNT_STATE.write_text(json.dumps(state, indent=1))
+        except Exception:
+            LOG_MESSAGE = f"    comparison failed for {item_id}"
+            print(LOG_MESSAGE, flush=True)
+            import traceback
+
+            traceback.print_exc()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -296,6 +394,18 @@ def main() -> None:
     reporter.add_argument("--min-age", type=int, default=60)
     reporter.add_argument("--only-live", action="store_true")
     reporter.set_defaults(func=report)
+    hunter = sub.add_parser("hunt")
+    hunter.add_argument("--gap", type=float, default=180.0, help="seconds between requests")
+    hunter.add_argument("--block-backoff", type=float, default=900.0,
+                        help="seconds to wait after a block, multiplied by the streak")
+    hunter.add_argument("--max-backoff", type=float, default=7200.0)
+    hunter.add_argument("--max-musiq", type=float, default=60.0)
+    hunter.add_argument("--min-price", type=float, default=0.0)
+    hunter.add_argument("--max-candidates", type=int, default=12)
+    hunter.add_argument("--no-compare", dest="compare", action="store_false")
+    hunter.add_argument("--telegram", action="store_true", help="send alerts for the survivors")
+    hunter.add_argument("--base-url", default="https://ale-hkd-wxx.tailc0437a.ts.net")
+    hunter.set_defaults(func=hunt, compare=True)
     args = parser.parse_args()
     args.func(args)
 

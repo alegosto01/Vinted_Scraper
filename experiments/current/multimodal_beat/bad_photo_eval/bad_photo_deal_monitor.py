@@ -611,7 +611,9 @@ class Monitor:
 
     def run_full_compare(self, job: dict) -> bool:
         item_id = str(job["item_id"])
+        # The queue can lag for days, so do not assume find_candidates' directory survived.
         matches = self.output / "matches" / item_id
+        matches.mkdir(parents=True, exist_ok=True)
         target_full = self.fetch_full_item(item_id)
         if target_full is None:
             LOG.warning("Target page %s unavailable; will retry later", item_id)
