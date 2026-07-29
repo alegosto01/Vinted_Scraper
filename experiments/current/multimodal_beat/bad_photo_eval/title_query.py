@@ -23,7 +23,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("title_query")
 MODEL = "gpt-5-nano"  # reasoning tokens are what recognise "stich" as Stitch; ~€0.07/day at current volume
-PROMPT_VERSION = 2  # bump to invalidate cached rewrites when the instructions change
+PROMPT_VERSION = 3  # bump to invalidate cached rewrites when the instructions change
 
 SCHEMA = {
     "type": "object",
@@ -38,11 +38,14 @@ SCHEMA = {
     },
 }
 
-PROMPT = """You normalise second-hand marketplace listing titles into search queries.
+PROMPT = """You normalise second-hand marketplace listings into search queries.
 
-Given a listing title (any language, often with emoji, size, condition and seller chatter),
-identify the product and return a search query that would find the SAME product listed by
-other sellers on Vinted Italy.
+Given a listing title, and often its description, identify the product and return a search
+query that would find the SAME product listed by other sellers on Vinted Italy.
+
+Sellers frequently write a lazy title ("Anello Pandora", "The one") and name the actual
+product in the description. Read the description whenever it is given: take the model name,
+reference or line from there when the title lacks it, and prefer it over guessing.
 
 Rules for the query:
 - brand + model + product type, in that order
@@ -71,6 +74,7 @@ def rewrite_title(
     client=None,
     brand: str | None = None,
     category: str | None = None,
+    description: str | None = None,
 ) -> dict:
     """Return the parsed identity for `title`; falls back to the raw title on any failure."""
     fallback = {"brand": brand, "model": None, "product_type": None,
@@ -79,7 +83,8 @@ def rewrite_title(
     if not title:
         return fallback
 
-    path = _cache_path(cache_dir, title)
+    description = (description or "").strip()[:500]
+    path = _cache_path(cache_dir, f"{title}\n{description}")
     if path.exists():
         try:
             return json.loads(path.read_text(encoding="utf-8"))
@@ -98,7 +103,11 @@ def rewrite_title(
         hints.append(f"catalog brand field: {brand}")
     if category:
         hints.append(f"category: {category}")
-    user = title if not hints else f"{title}\n({'; '.join(hints)})"
+    user = f"title: {title}"
+    if hints:
+        user += f"\n({'; '.join(hints)})"
+    if description:
+        user += f"\ndescription: {description}"
 
     # gpt-5 models reject any temperature but their default, so only pin it where allowed.
     options = {} if MODEL.startswith("gpt-5") else {"temperature": 0}

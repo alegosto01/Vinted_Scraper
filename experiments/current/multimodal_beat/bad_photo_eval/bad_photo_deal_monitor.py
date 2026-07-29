@@ -362,6 +362,25 @@ def _price_line(analysis: dict) -> str:
     return f"kept {analysis['count']} · median {median} · discount {discount}"
 
 
+def _deal_mark(analysis: dict) -> str:
+    """Green only when the discount is large enough to be worth opening."""
+    discount = analysis.get("discount_pct")
+    if discount is None or not analysis.get("count"):
+        return "⚫"
+    if discount >= 25:
+        return "🟢"
+    if discount >= 10:
+        return "🟡"
+    return "⚪"
+
+
+def _verdict_block(label: str, analysis: dict) -> str:
+    median = "—" if analysis["median"] is None else f"<b>€{analysis['median']:.2f}</b>"
+    discount = "—" if analysis["discount_pct"] is None else f"<b>{analysis['discount_pct']:+.1f}%</b>"
+    return (f"{_deal_mark(analysis)} <b>{label}</b> · {html.escape(analysis['verdict'])}\n"
+            f"      {analysis['count']} comparabili · mediana {median} · sconto {discount}")
+
+
 async def send_telegram(
     target: dict,
     analysis: dict,
@@ -377,22 +396,20 @@ async def send_telegram(
     chat_id = settings.telegram.resolved_recommended_deals_chat_id
     if not token or chat_id is None:
         raise RuntimeError("Telegram bot token/chat is not configured")
+    headline = analysis_full if analysis_full is not None else analysis
     caption = (
-        f"<b>Bad-photo candidate: {html.escape(str(target['Title']))}</b>\n"
-        f"€{float(target['Price']):.2f} · {html.escape(str(target['Condition']))} · MUSIQ {musiq:.1f}\n"
-        f"<b>Catalog data:</b> {html.escape(analysis['verdict'])}\n"
-        f"{_price_line(analysis)}"
+        f"{_deal_mark(headline)} <b>{html.escape(str(target['Title']))}</b>\n"
+        f"💶 <b>€{float(target['Price']):.2f}</b> · {html.escape(str(target['Condition']))}"
+        f" · 📷 MUSIQ <b>{musiq:.1f}</b>\n\n"
+        f"{_verdict_block('Solo catalogo', analysis)}"
     )
     if analysis_full is not None:
-        caption += (
-            f"\n<b>Full data:</b> {html.escape(analysis_full['verdict'])}\n"
-            f"{_price_line(analysis_full)}"
-        )
+        caption += f"\n{_verdict_block('Dati completi', analysis_full)}"
     if breakdown:
-        caption += f"\n<i>{html.escape(breakdown)}</i>"
+        caption += f"\n\n🔎 <i>{html.escape(breakdown)}</i>"
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Vinted", url=str(target["Link"])),
-        InlineKeyboardButton("Comparison", url=report_url),
+        InlineKeyboardButton("🛒 Vinted", url=str(target["Link"])),
+        InlineKeyboardButton("📊 Confronto", url=report_url),
     ]])
     bot = Bot(str(token))
     image = str(target.get("Images") or "")
@@ -471,7 +488,13 @@ class Monitor:
         query = str(target["Title"])
         confidence = "unknown"
         if self.args.smart_query:
-            rewrite = rewrite_title(query, self.output / "title_queries", brand=target.get("Brand"))
+            # Lazy titles often name the product only in the description, so read the item
+            # page before searching. It is cached, so the full-compare worker reuses it.
+            page = self.fetch_full_item(str(target["Dataid"])) or {}
+            rewrite = rewrite_title(query, self.output / "title_queries",
+                                    brand=page.get("brand") or target.get("Brand"),
+                                    category=page.get("category"),
+                                    description=page.get("description"))
             if rewrite["query"] != query:
                 LOG.info("Query rewritten: %r -> %r [%s]", query, rewrite["query"], rewrite["confidence"])
             query = rewrite["query"]
