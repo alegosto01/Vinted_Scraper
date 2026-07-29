@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("image_compare")
 MODEL = "gpt-4.1-mini"  # nano contradicts itself on these pairs; mini stays coherent at ~$0.0003
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 MAX_IMAGES = 5
 IMAGE_PX = 512
 
@@ -60,6 +60,11 @@ same product, and so are a slim fit and a custom fit of it. Do not reject on the
 a fit label.
 Say false when the article itself differs - a polo shirt instead of a linen shirt, a
 different model or line, a different material, or a different format.
+
+These listings often photograph the collar label, and the label carries words like "SLIM
+FIT", "CUSTOM FIT" or "CLASSIC FIT". Those words describe the cut, which does not change
+what the article is: a slim fit and a custom fit of one shirt in one material are the same
+product. Never answer false because two labels read differently.
 
 same_colour: whether the colourway matches. Report it separately; it never changes
 same_product.
