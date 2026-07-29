@@ -147,7 +147,14 @@ class CatalogClient:
             LOG.warning("%s blocked/failed on %s: HTTP %s; no immediate retry",
                         search_name, label, response.status_code)
             return pd.DataFrame()
-        products = requests_html.HTML(html=response.text).find(PRODUCT_SELECTOR)
+        if not (response.text or "").strip():
+            LOG.warning("%s returned an empty body on %s", search_name, label)
+            return pd.DataFrame()
+        try:
+            products = requests_html.HTML(html=response.text).find(PRODUCT_SELECTOR)
+        except Exception:
+            LOG.exception("%s returned unparseable HTML", search_name)
+            return pd.DataFrame()
         if not products:
             LOG.warning("%s returned no products; no immediate retry", search_name)
             return pd.DataFrame()
