@@ -23,15 +23,18 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("title_query")
 MODEL = "gpt-5-nano"  # reasoning tokens are what recognise "stich" as Stitch; ~€0.07/day at current volume
-PROMPT_VERSION = 5  # bump to invalidate cached rewrites when the instructions change
+PROMPT_VERSION = 7  # bump to invalidate cached rewrites when the instructions change
 
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["brand", "model", "product_type", "query", "query_local", "confidence"],
+    "required": ["brand", "model", "material", "product_type", "query", "query_local", "confidence"],
     "properties": {
         "brand": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"], "description": "specific model or line name, null if the title names none"},
+        "material": {"type": ["string", "null"],
+                     "description": "material or finish that sets this item apart, in English, "
+                                    "with its qualifier: '18k rose gold plated', 'linen', 'sterling silver'"},
         "product_type": {"type": ["string", "null"], "description": "what the object is, in English"},
         "query": {"type": "string", "description": "Vinted search text in English: brand + model + product type"},
         "query_local": {"type": "string", "description": "the same query written in Italian"},
@@ -57,7 +60,9 @@ Rules for the query:
   ("Tomorrowland botanic ring" -> "Tomorrowland botanic ring")
 - keep the material or finish whenever it separates this item from the brand's ordinary
   stock, because it sets the price: linen vs cotton, silk, leather, cashmere, 18k vs
-  silver plated. "Camisa LINO Polo Ralph Lauren" must keep the linen: "Polo Ralph Lauren
+  silver plated. Keep a material and its qualifier TOGETHER as one phrase - "18k rose gold",
+  "sterling silver", "rose gold plated" - never the colour word alone. "18k rose gold ring"
+  must not become "rosé ring": without "gold" the word describes nothing. "Camisa LINO Polo Ralph Lauren" must keep the linen: "Polo Ralph Lauren
   linen shirt", never just "Polo Ralph Lauren shirt"
 - never repeat a word already present in the brand name ("Polo Ralph Lauren Polo camicia"
   is wrong)
@@ -137,6 +142,15 @@ def rewrite_title(
 
     parsed["source"] = MODEL
     parsed["query"] = (parsed.get("query") or title).strip() or title
+    # The model trims the material to keep the query short, so put it back deterministically.
+    material = (parsed.get("material") or "").strip()
+    if material and material.casefold() not in parsed["query"].casefold():
+        product_type = (parsed.get("product_type") or "").strip()
+        if product_type and parsed["query"].casefold().endswith(product_type.casefold()):
+            head = parsed["query"][: -len(product_type)].rstrip()
+            parsed["query"] = f"{head} {material} {product_type}".strip()
+        else:
+            parsed["query"] = f"{parsed['query']} {material}".strip()
     cache_dir.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")

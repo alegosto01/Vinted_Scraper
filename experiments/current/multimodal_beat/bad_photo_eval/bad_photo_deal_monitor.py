@@ -44,6 +44,7 @@ from match_vinted_products import (  # noqa: E402
 )
 from full_compare import FullSplitConfig, candidate_frame, score_images, write_full_report  # noqa: E402
 from full_item_fetch import cached_item, fetch_item  # noqa: E402
+from image_compare import compare_photos  # noqa: E402
 from spec_compare import compare_specs, usable_comparables, verdict_summary  # noqa: E402
 from title_query import rewrite_title  # noqa: E402
 from scrape_title_candidates import (  # noqa: E402
@@ -387,6 +388,7 @@ class Monitor:
 
         query = str(target["Title"])
         confidence = "unknown"
+        rewrite: dict = {}
         if self.args.smart_query:
             # Lazy titles often name the product only in the description, so read the item
             # page before searching. It is cached, so the full-compare worker reuses it.
@@ -400,11 +402,35 @@ class Monitor:
             query = rewrite["query"]
             confidence = rewrite["confidence"]
 
-        candidates = self.client.title_search(str(target["Title"]), status_id, query=query)
+        # Sellers here write in both languages, so search both and merge on item id.
+        queries = [query]
+        if self.args.dual_search and rewrite.get("query_local"):
+            queries.append(rewrite["query_local"].strip())
+        frames = []
+        for text in dict.fromkeys(q for q in queries if q):
+            found = self.client.title_search(str(target["Title"]), status_id, query=text)
+            LOG.info("%s: %d rows for %r", target["Dataid"], len(found), text)
+            frames.append(found)
+
+        candidates = (pd.concat(frames, ignore_index=True).drop_duplicates("Dataid")
+                      if any(not frame.empty for frame in frames) else pd.DataFrame())
+
+        # A long query with the material can be too narrow; widen once rather than give up.
+        material = (rewrite.get("material") or "").strip() if self.args.smart_query else ""
+        if material and len(candidates) < self.args.widen_below:
+            widened = query.replace(material, "").replace("  ", " ").strip()
+            if widened and widened != query:
+                LOG.info("%s: only %d candidates, widening to %r",
+                         target["Dataid"], len(candidates), widened)
+                extra = self.client.title_search(str(target["Title"]), status_id, query=widened)
+                if not extra.empty:
+                    candidates = (pd.concat([candidates, extra], ignore_index=True)
+                                  .drop_duplicates("Dataid") if not candidates.empty else extra)
+
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_path, index=False)
-        LOG.info("%s: %d candidates for %r", target["Dataid"], len(candidates), query)
+        LOG.info("%s: %d distinct candidates", target["Dataid"], len(candidates))
         return candidates, confidence
 
     def in_price_band(self, target_price: float, candidates: pd.DataFrame, target_id: str) -> list[str]:
@@ -513,6 +539,31 @@ class Monitor:
         LOG.info("Text verdict: %d of %d candidates comparable", len(usable), len(rows))
         return rows
 
+    def judge_photos(self, target_full: dict, survivors: list[dict], rows: pd.DataFrame) -> pd.DataFrame:
+        """Second opinion on the photos, kept alongside the DINO cosine rather than replacing it."""
+        verdicts = []
+        for candidate in survivors:
+            answer = compare_photos(target_full, candidate, self.output / "image_cache")
+            if answer:
+                verdicts.append({"candidate_item_id": str(candidate["item_id"]),
+                                 "photo_same_product": answer.get("same_product"),
+                                 "photo_same_colour": answer.get("same_colour"),
+                                 "photo_confidence": answer.get("confidence"),
+                                 "photo_note": answer.get("note")})
+        if not verdicts:
+            return rows
+        rows = rows.copy()
+        rows["candidate_item_id"] = rows["candidate_item_id"].astype(str)
+        rows = rows.merge(pd.DataFrame(verdicts), on="candidate_item_id", how="left")
+        judged = rows.dropna(subset=["photo_same_product"])
+        if not judged.empty:
+            agree = judged["photo_same_product"].astype(bool)
+            LOG.info("Photo model says same product for %d of %d judged (DINO mean %.3f for yes, %.3f for no)",
+                     int(agree.sum()), len(judged),
+                     judged.loc[agree, "photo_similarity"].mean() if agree.any() else float("nan"),
+                     judged.loc[~agree, "photo_similarity"].mean() if (~agree).any() else float("nan"))
+        return rows
+
     def run_full_compare(self, job: dict) -> bool:
         item_id = str(job["item_id"])
         matches = self.output / "matches" / item_id
@@ -553,6 +604,8 @@ class Monitor:
                 )
             rows = rows.merge(photos, on="candidate_item_id", how="left")
             LOG.info("Compared photos for %d comparable candidates", len(survivors))
+            if self.args.image_llm:
+                rows = self.judge_photos(target_full, survivors, rows)
         rows_b = rows
         rows_b.to_csv(matches / "split_full.csv", index=False)
 
@@ -672,9 +725,16 @@ def parse_args():
                         help="search with the raw listing title instead of the rewritten query")
     parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
                         help="decide comparables from embeddings alone, without the model")
+    parser.add_argument("--widen-below", type=int, default=10,
+                        help="re-search without the material when fewer candidates than this")
+    parser.add_argument("--no-dual-search", dest="dual_search", action="store_false",
+                        help="search only the English query instead of English and Italian")
+    parser.add_argument("--no-image-llm", dest="image_llm", action="store_false",
+                        help="rank photos with DINO only, without asking the model")
     parser.add_argument("--no-skip-undecidable", dest="skip_undecidable", action="store_false",
                         help="alert even when the title names no product and comparables are too few")
-    parser.set_defaults(smart_query=True, spec_compare=True, skip_undecidable=True)
+    parser.set_defaults(smart_query=True, spec_compare=True, skip_undecidable=True,
+                        dual_search=True, image_llm=True)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prime-first-cycle", dest="prime_first_cycle", action="store_false")
