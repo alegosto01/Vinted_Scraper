@@ -413,6 +413,18 @@ class Monitor:
         queries = [query]
         if self.args.dual_search and rewrite.get("query_local"):
             queries.append(rewrite["query_local"].strip())
+        # The material is not in the query because it over-narrows some categories, but for
+        # clothing it is the only word that matters: "Polo Ralph Lauren shirt" returned 18
+        # cotton shirts and 0 comparables, "...linen shirt" returned 18 linen ones and 7.
+        # Searching both ways and merging gets the breadth and the precision.
+        material = (rewrite.get("material") or "").strip() if self.args.smart_query else ""
+        if material and material.casefold() not in query.casefold():
+            product_type = (rewrite.get("product_type") or "").strip()
+            if product_type and query.casefold().endswith(product_type.casefold()):
+                head = query[: -len(product_type)].rstrip()
+                queries.append(f"{head} {material} {product_type}".strip())
+            else:
+                queries.append(f"{query} {material}".strip())
         frames = []
         for text in dict.fromkeys(q for q in queries if q):
             found = self.client.title_search(str(target["Title"]), status_id, query=text)
@@ -421,18 +433,6 @@ class Monitor:
 
         candidates = (pd.concat(frames, ignore_index=True).drop_duplicates("Dataid")
                       if any(not frame.empty for frame in frames) else pd.DataFrame())
-
-        # A long query with the material can be too narrow; widen once rather than give up.
-        material = (rewrite.get("material") or "").strip() if self.args.smart_query else ""
-        if material and len(candidates) < self.args.widen_below:
-            widened = query.replace(material, "").replace("  ", " ").strip()
-            if widened and widened != query:
-                LOG.info("%s: only %d candidates, widening to %r",
-                         target["Dataid"], len(candidates), widened)
-                extra = self.client.title_search(str(target["Title"]), status_id, query=widened)
-                if not extra.empty:
-                    candidates = (pd.concat([candidates, extra], ignore_index=True)
-                                  .drop_duplicates("Dataid") if not candidates.empty else extra)
 
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
@@ -735,8 +735,6 @@ def parse_args():
                         help="search with the raw listing title instead of the rewritten query")
     parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
                         help="decide comparables from embeddings alone, without the model")
-    parser.add_argument("--widen-below", type=int, default=10,
-                        help="re-search without the material when fewer candidates than this")
     parser.add_argument("--no-dual-search", dest="dual_search", action="store_false",
                         help="search only the English query instead of English and Italian")
     parser.add_argument("--no-image-llm", dest="image_llm", action="store_false",
