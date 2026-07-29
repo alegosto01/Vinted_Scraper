@@ -250,7 +250,6 @@ async def send_item_with_button(
     cache_key = cache_item(item)
     reply_markup = build_generate_keyboard(cache_key)
     resolved_image_url = extract_primary_image_url(image_url)
-    log_event("item_sent", item=item, cache_key=cache_key)
 
     async def send_text_fallback() -> None:
         await bot.send_message(
@@ -281,9 +280,14 @@ async def send_item_with_button(
             await send_text_fallback()
         else:
             raise
+        # The fallback delivered it, so record the send and stop here.
+        log_event("item_sent", item=item, cache_key=cache_key)
+        return
     except RetryAfter as exc:
         await asyncio.sleep(exc.retry_after + 0.5)
+        # The retry logs its own delivery; returning here keeps one event per item.
         await send_item_with_button(token, chat_id, item, image_url=image_url)
+        return
     except (TimedOut, NetworkError):
         await asyncio.sleep(1.0)
         if resolved_image_url:
@@ -304,3 +308,5 @@ async def send_item_with_button(
                 await send_text_fallback()
         else:
             await send_text_fallback()
+
+    log_event("item_sent", item=item, cache_key=cache_key)

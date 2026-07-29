@@ -134,7 +134,7 @@ def random_sleep(range_from, range_to):
 def download_image(image_url, path):
     return_value = True
     try:
-        response = requests.get(image_url)
+        response = requests.get(image_url, timeout=30)
         if not os.path.exists(path):
             with open(path, 'wb') as file:
                 file.write(response.content)

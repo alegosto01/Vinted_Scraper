@@ -30,7 +30,6 @@ SCORE_EXTREME_REASONS = {"score_low", "score_high"}
 
 
 def scrape_worker(args):
-                time.sleep(15)
                 """Top‐level for pickling: calls scrape_single_product and tacks its data onto the meta."""
                 scraper, meta = args
                 new_row, new_seller = scraper.scrape_single_product(
@@ -812,7 +811,7 @@ class Full_Scraper(Scraper):
                 else:
                     stars = stars_element.attrs.get("aria-label").split(" ")[2]
             except Exception as exc:
-                self.logger.debug('Could not parse seller stars for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse seller stars for item=%s: %s', data_id, exc)
                 stars = -1
             # stars = self.driver.find_elements(By.XPATH, "//div[@class='web_ui__Rating__star web_ui__Rating__full']")
 
@@ -824,7 +823,7 @@ class Full_Scraper(Scraper):
                 location = location_element.text if location_element else "Not found"            
                 # location = self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='location']").text
             except Exception as exc:
-                self.logger.debug('Could not parse seller location for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse seller location for item=%s: %s', data_id, exc)
                 location = "Unknown"
 
             try:
@@ -834,7 +833,7 @@ class Full_Scraper(Scraper):
                 views_count = int(views_count_element.text) if views_count_element else -1  
                 # views_count = int(self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='view_count']").text)
             except Exception as exc:
-                self.logger.debug('Could not parse views count for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse views count for item=%s: %s', data_id, exc)
                 views_count = -1
             
             
@@ -844,7 +843,7 @@ class Full_Scraper(Scraper):
                 interested_count = int(interested_count_element.text.split(" ")[0]) if interested_count_element else -1  
                 # interested_count = int(self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='interested']").text.split(" ")[0])
             except Exception as exc:
-                self.logger.debug('Could not parse interested count for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse interested count for item=%s: %s', data_id, exc)
                 interested_count = -1
 
             try:
@@ -855,7 +854,7 @@ class Full_Scraper(Scraper):
                 #     # self.driver.find_element(By.XPATH, "//div[@class='details-list__item-value' and @itemprop='upload_date']").text.split()[:-1]
                 #     )
             except Exception as exc:
-                self.logger.debug('Could not parse upload date for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse upload date for item=%s: %s', data_id, exc)
                 upload_date = "Unknown"
             
             try:
@@ -863,13 +862,13 @@ class Full_Scraper(Scraper):
                 item_description = html_content.find("span[class='web_ui__Text__text web_ui__Text__body web_ui__Text__left web_ui__Text__format']", first=True).text
                 # item_description = self.driver.find_element(By.XPATH, "//span[@class='web_ui__Text__text web_ui__Text__body web_ui__Text__left web_ui__Text__format']").text
             except Exception as exc:
-                self.logger.debug('Could not parse item description for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse item description for item=%s: %s', data_id, exc)
                 item_description = "Unknown"
             try:
                 #get seller name
                 seller_name = html_content.find(f"span[data-testid*='profile-username']", first=True).text
             except Exception as exc:
-                self.logger.debug('Could not parse seller name for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse seller name for item=%s: %s', data_id, exc)
                 seller_name = "Unknown"
             # except:
             #     print("problem finding something")
@@ -881,7 +880,7 @@ class Full_Scraper(Scraper):
                 # item_condition_element = html_content.find("div[data-testid='item-attributes-status']", first=True)
                 # item_condition = item_condition_element.find("div[class='details-list__item-value--redesign']", first=True).text
             except Exception as exc:
-                self.logger.debug('Could not parse item condition for item=%s: %s', data_id, exc)
+                self.logger.warning('Could not parse item condition for item=%s: %s', data_id, exc)
                 item_condition = "Unknown"
 
             # print(f"condition = {item_condition}")

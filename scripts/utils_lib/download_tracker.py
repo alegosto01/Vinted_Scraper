@@ -28,6 +28,19 @@ def stats_path(path: str | Path | None = None) -> Path:
     return resolved
 
 
+def estimate_response_bytes_with_source(response: Any, *, body: bytes | None = None):
+    """Bytes plus where they came from: the wire size or the decompressed body."""
+    size = estimate_response_bytes(response, body=body)
+    if size is None:
+        return None, "unknown"
+    header = None
+    try:
+        header = (getattr(response, "headers", {}) or {}).get("content-length")
+    except Exception:
+        header = None
+    return size, "wire" if header not in (None, "") else "decompressed"
+
+
 def estimate_response_bytes(response: Any, *, body: bytes | None = None) -> int | None:
     if response is None:
         return None

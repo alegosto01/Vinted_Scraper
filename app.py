@@ -859,6 +859,10 @@ def per_search_collector_summary(tracked: pd.DataFrame) -> pd.DataFrame:
     work["_full_success"] = full_source.fillna("").astype(str).eq("success")
     if "tracking_key" not in work.columns:
         work["tracking_key"] = tracking_key(work)
+    if "cohort" not in work.columns:
+        st.info("This run has no cohort column, so the per-search split is unavailable.")
+        return
+
     pivot = work.pivot_table(index="SearchName", columns="cohort", values="tracking_key", aggfunc="count", fill_value=0)
     for col in ["high_score_candidate", "low_score_control"]:
         if col not in pivot.columns:
@@ -1160,7 +1164,10 @@ with tab_eventual:
                     "DealScore", "DealFinderScore", "DealFinderScoreBand", "Link"]
 
     frames = []
-    for search_dir in sorted(SIMPLE_SCRAPE.iterdir()):
+    search_dirs = sorted(SIMPLE_SCRAPE.iterdir()) if SIMPLE_SCRAPE.exists() else []
+    if not search_dirs:
+        st.info("No simple_scrape data yet.")
+    for search_dir in search_dirs:
         if not search_dir.is_dir() or search_dir.name == "logs":
             continue
         f = search_dir / "eventual_sale_check" / "sold_eventually.csv"

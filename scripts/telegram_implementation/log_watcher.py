@@ -234,6 +234,12 @@ async def _diagnose(log_name: str, line: str, ctx: list[str], reason: str) -> st
 
 
 # ── Telegram alert ─────────────────────────────────────────────────────────────
+def _redact(value: object) -> str:
+    """httpx exceptions can carry the request URL, and the URL carries the token."""
+    text = str(value)
+    return text.replace(_BOT_TOKEN, "***") if _BOT_TOKEN else text
+
+
 async def _alert(text: str) -> None:
     url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendMessage"
     for start in range(0, len(text), 4000):
@@ -242,7 +248,7 @@ async def _alert(text: str) -> None:
             try:
                 await client.post(url, json={"chat_id": _MAINT_CHAT_ID, "text": chunk, "parse_mode": "HTML"})
             except Exception as exc:
-                LOGGER.warning("Telegram alert failed: %s", exc)
+                LOGGER.warning("Telegram alert failed: %s", _redact(exc))
 
 
 # ── Per-line pipeline ──────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -186,8 +187,11 @@ def fetch_item(
         return None
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    tmp_file = cache_dir / f"{item_id}.json.tmp"
-    tmp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-    os.replace(tmp_file, cache_file)
+    # Both the main loop and the worker can fetch the same item, so the temp file needs a
+    # unique name; os.replace is atomic but a shared temp name is not.
+    handle, tmp_name = tempfile.mkstemp(dir=cache_dir, prefix=f"{item_id}.", suffix=".tmp")
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=2)
+    os.replace(tmp_name, cache_file)
 
     return data

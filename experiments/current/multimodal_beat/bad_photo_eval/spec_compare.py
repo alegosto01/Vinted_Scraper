@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("spec_compare")
 MODEL = "gpt-5-nano"
-PROMPT_VERSION = 6
+PROMPT_VERSION = 7
 MAX_DESCRIPTION = 600
 BATCH = 12
 
@@ -76,9 +76,11 @@ For each candidate return:
   same product, even when the brand matches.
 
   What counts as "the same" depends on the category, because what sets the price differs:
-  * clothing, shoes, bags: the same model and material in a DIFFERENT SIZE is still the same
-    product - garment sizes barely move the second-hand price. A different colourway is
-    usually still comparable; a different model or line is not.
+  * clothing, shoes, bags: the same garment in the same material is the same product even
+    when the SIZE, the COLOUR or the FIT differ - slim, classic, custom and regular fit of
+    one shirt all sell for the same money second-hand, and so do its colourways. What makes
+    it a different product is a different material (linen vs cotton), a different garment
+    (shirt vs polo), or a different line entirely.
   * fragrances, cosmetics: the exact fragrance and concentration decide the price. Paradoxe
     is not Paradigme, and eau de toilette is not eau de parfum. Volume matters: only compare
     a 90 ml with a 90 ml unless nothing else exists.
@@ -100,7 +102,8 @@ For each candidate return:
   "for_parts" (broken/spares), "replica" (fake/inspired/dupe), "bundle" or "lot" (several items
   in one listing), "empty_box_or_accessory" (box, case, strap, receipt only - not the product),
   "miniature_or_sample" (miniature, sample, tester, travel size, refill),
-  "wrong_variant" (different variant, e.g. kids size, EDT instead of parfum), otherwise "none".
+  "wrong_variant" (different variant, e.g. kids size, EDT instead of parfum) - but never for
+  a fit, a size or a colour on clothing, those stay comparable - otherwise "none".
 - note: at most 12 words naming the actual difference, empty string if identical.
 
 A listing far cheaper than the target is usually a miniature, a sample, an empty box or a

@@ -92,25 +92,32 @@ class RequestPacer:
 class CatalogClient:
     def __init__(self, gap_seconds: float, block_pause_seconds: float = 600.0,
                  fallback_seconds: float = 600.0):
-        self.session = cffi.Session(impersonate="chrome")
+        # curl_cffi sessions are not thread-safe and the item worker runs alongside the
+        # catalog loop, so every thread gets its own.
+        self._local = threading.local()
         self.pacer = RequestPacer(gap_seconds)
         self.scraper = Simple_scraper()
         self.block_pause_seconds = block_pause_seconds
         self.fallback_seconds = fallback_seconds
         self.blocked_until = 0.0
         self.fallback_until = 0.0
-        self.datacenter: object | None = None
+
+    @property
+    def session(self):
+        if not hasattr(self._local, "direct"):
+            self._local.direct = cffi.Session(impersonate="chrome")
+        return self._local.direct
 
     def _datacenter_session(self):
-        if self.datacenter is None:
+        if not hasattr(self._local, "datacenter"):
             proxy = settings.proxy.datacenter_proxy_url
             if not proxy:
                 LOG.warning("No datacenter proxy configured; cannot fall back")
                 return None
-            self.datacenter = cffi.Session(
+            self._local.datacenter = cffi.Session(
                 impersonate="chrome", proxies={"http": proxy, "https": proxy}, verify=False
             )
-        return self.datacenter
+        return self._local.datacenter
 
     def transport(self):
         """Own IP normally; the paid datacenter proxy for a window after a block."""
@@ -357,7 +364,7 @@ class Monitor:
         self.queue_path = self.output / "full_compare_queue.json"
         self.queue_lock = threading.Lock()
         self.encoder_lock = threading.Lock()
-        self.full_session = cffi.Session(impersonate="chrome")
+        self._item_local = threading.local()
         self.full_pacer = RequestPacer(args.full_gap_seconds, "item page")
 
     def score_musiq(self, image_path: Path) -> float:
@@ -525,7 +532,9 @@ class Monitor:
 
         session, label = self.client.transport()
         if label == "direct":
-            session = self.full_session
+            if not hasattr(self._item_local, "session"):
+                self._item_local.session = cffi.Session(impersonate="chrome")
+            session = self._item_local.session
             self.full_pacer.wait()
 
         def on_status(status: int) -> None:

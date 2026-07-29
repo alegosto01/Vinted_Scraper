@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("image_compare")
 MODEL = "gpt-4.1-mini"  # nano contradicts itself on these pairs; mini stays coherent at ~$0.0003
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 MAX_IMAGES = 5
 IMAGE_PX = 512
 
@@ -53,10 +53,11 @@ show the article, and do not conclude from a single unhelpful photo. A close-up 
 label tells you the brand, not the type of garment - do not read "POLO RALPH LAUREN" on a
 label as meaning the article is a polo shirt.
 
-same_product: whether they show the same kind of article in the same model, cut and
-material - what a buyer paying for the target would accept. Judge the object, not the
-photo: ignore lighting, background, angle, crop, wrinkles and photo quality. Colour is
-NOT part of this answer: a navy and a white shirt of the same model are the same product.
+same_product: whether they show the same kind of article in the same model and material -
+what a buyer paying for the target would accept. Judge the object, not the
+photo: ignore lighting, background, angle, crop, wrinkles and photo quality. Colour and fit are NOT part of this answer: a navy and a white shirt of one model are the
+same product, and so are a slim fit and a custom fit of it. Do not reject on the wording of
+a fit label.
 Say false when the article itself differs - a polo shirt instead of a linen shirt, a
 different model or line, a different material, or a different format.
 
