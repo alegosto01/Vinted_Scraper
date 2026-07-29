@@ -23,7 +23,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("title_query")
 MODEL = "gpt-5-nano"  # reasoning tokens are what recognise "stich" as Stitch; ~€0.07/day at current volume
-PROMPT_VERSION = 7  # bump to invalidate cached rewrites when the instructions change
+PROMPT_VERSION = 8  # bump to invalidate cached rewrites when the instructions change
 
 SCHEMA = {
     "type": "object",
@@ -58,12 +58,10 @@ Rules for the query:
 - use the canonical brand and model spelling ("Téléphone s22 ultra" -> "Samsung Galaxy S22 Ultra")
 - when no model name exists, keep the most distinctive descriptive word from the title
   ("Tomorrowland botanic ring" -> "Tomorrowland botanic ring")
-- keep the material or finish whenever it separates this item from the brand's ordinary
-  stock, because it sets the price: linen vs cotton, silk, leather, cashmere, 18k vs
-  silver plated. Keep a material and its qualifier TOGETHER as one phrase - "18k rose gold",
-  "sterling silver", "rose gold plated" - never the colour word alone. "18k rose gold ring"
-  must not become "rosé ring": without "gold" the word describes nothing. "Camisa LINO Polo Ralph Lauren" must keep the linen: "Polo Ralph Lauren
-  linen shirt", never just "Polo Ralph Lauren shirt"
+- do NOT put the material in the query: it makes the search too narrow and sellers rarely
+  spell it the same way. Report it in the material field instead, with its qualifier kept
+  together as one phrase ("18k rose gold plated", "sterling silver", "linen"), so the
+  comparison can check it later
 - never repeat a word already present in the brand name ("Polo Ralph Lauren Polo camicia"
   is wrong)
 - write the whole query in ENGLISH, translating the product type and any descriptive word
@@ -142,15 +140,8 @@ def rewrite_title(
 
     parsed["source"] = MODEL
     parsed["query"] = (parsed.get("query") or title).strip() or title
-    # The model trims the material to keep the query short, so put it back deterministically.
-    material = (parsed.get("material") or "").strip()
-    if material and material.casefold() not in parsed["query"].casefold():
-        product_type = (parsed.get("product_type") or "").strip()
-        if product_type and parsed["query"].casefold().endswith(product_type.casefold()):
-            head = parsed["query"][: -len(product_type)].rstrip()
-            parsed["query"] = f"{head} {material} {product_type}".strip()
-        else:
-            parsed["query"] = f"{parsed['query']} {material}".strip()
+    # The material stays out of the query on purpose: it narrows the search too much.
+    # spec_compare receives it separately and checks it against each candidate.
     cache_dir.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -26,8 +26,8 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("image_compare")
 MODEL = "gpt-4.1-mini"  # nano contradicts itself on these pairs; mini stays coherent at ~$0.0003
-PROMPT_VERSION = 2
-MAX_IMAGES = 2
+PROMPT_VERSION = 3
+MAX_IMAGES = 5
 IMAGE_PX = 512
 
 SCHEMA = {
@@ -44,7 +44,14 @@ SCHEMA = {
 
 PROMPT = """You compare photos from two second-hand listings.
 
-The first images are the TARGET listing, the rest are the CANDIDATE listing.
+You are given every photo of the TARGET listing, then every photo of the CANDIDATE
+listing, each announced by a line saying which listing it belongs to and its number.
+
+Use all of them together. Listing photos are uneven: one may be a close-up of a label,
+another a full view, another a detail of a defect. Judge from whichever photos actually
+show the article, and do not conclude from a single unhelpful photo. A close-up of a brand
+label tells you the brand, not the type of garment - do not read "POLO RALPH LAUREN" on a
+label as meaning the article is a polo shirt.
 
 same_product: whether they show the same kind of article in the same model, cut and
 material - what a buyer paying for the target would accept. Judge the object, not the
@@ -104,16 +111,15 @@ def compare_photos(target: dict, candidate: dict, cache_dir: Path, client=None,
             return {}
         client = openai.OpenAI()
 
-    content: list[dict] = [{"type": "text", "text": "TARGET listing photos:"}]
-    for url in target_urls:
-        encoded = _encode(url)
-        if encoded:
-            content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
-    content.append({"type": "text", "text": "CANDIDATE listing photos:"})
-    for url in candidate_urls:
-        encoded = _encode(url)
-        if encoded:
-            content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
+    content: list[dict] = []
+    for label, urls in (("TARGET", target_urls), ("CANDIDATE", candidate_urls)):
+        for index, url in enumerate(urls, 1):
+            encoded = _encode(url)
+            if not encoded:
+                continue
+            content.append({"type": "text", "text": f"{label} photo {index} of {len(urls)}:"})
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
     if sum(1 for part in content if part["type"] == "image_url") < 2:
         return {}
 

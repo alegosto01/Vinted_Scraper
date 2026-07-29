@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("spec_compare")
 MODEL = "gpt-5-nano"
-PROMPT_VERSION = 5
+PROMPT_VERSION = 6
 MAX_DESCRIPTION = 600
 BATCH = 12
 
@@ -106,12 +106,25 @@ For each candidate return:
 A listing far cheaper than the target is usually a miniature, a sample, an empty box or a
 fake - say so through the disqualifier rather than treating it as a cheap comparable.
 
+When the target names a material that sets its price (linen, silk, leather, cashmere, 18k
+gold, sterling silver), a candidate in a different material is not the same product, even
+when the model name matches. The search deliberately does not filter on material, so expect
+candidates in the wrong one and reject them.
+
 Judge from the title and the description only. Do not guess beyond what they say."""
 
 
 def _clip(value: object, limit: int = MAX_DESCRIPTION) -> str:
     text = "" if value is None else str(value).strip().replace("\n", " ")
     return text[:limit]
+
+
+def _target_block(item: dict) -> str:
+    block = _listing_block(item)
+    material = (item.get("material") or "").strip()
+    if material:
+        block += f"\nmaterial that must match: {material}"
+    return block
 
 
 def _listing_block(item: dict, prefix: str = "") -> str:
@@ -127,7 +140,7 @@ def _cache_path(cache_dir: Path, target_id: str, ids: list[str]) -> Path:
 
 
 def _ask(client, target: dict, batch: list[dict]) -> list[dict]:
-    user = (f"TARGET\n{_listing_block(target)}\n\nCANDIDATES\n"
+    user = (f"TARGET\n{_target_block(target)}\n\nCANDIDATES\n"
             + "\n\n".join(_listing_block(item) for item in batch))
     options = {} if MODEL.startswith("gpt-5") else {"temperature": 0}
     response = client.chat.completions.create(

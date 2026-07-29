@@ -380,11 +380,11 @@ class Monitor:
             self.image_encoder = DINOImageEncoder(self.args.image_model, self.device)
         return self.title_encoder, self.image_encoder
 
-    def find_candidates(self, target: dict) -> tuple[pd.DataFrame, str]:
+    def find_candidates(self, target: dict) -> tuple[pd.DataFrame, str, str]:
         """Search Vinted for listings of the same product. No comparison happens here."""
         status_id = str(target.get("ConditionStatusId") or "")
         if status_id not in STATUS_NAMES:
-            return pd.DataFrame(), "low"
+            return pd.DataFrame(), "low", ""
 
         query = str(target["Title"])
         confidence = "unknown"
@@ -431,7 +431,7 @@ class Monitor:
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_path, index=False)
         LOG.info("%s: %d distinct candidates", target["Dataid"], len(candidates))
-        return candidates, confidence
+        return candidates, confidence, (rewrite.get("material") or "")
 
     def in_price_band(self, target_price: float, candidates: pd.DataFrame, target_id: str) -> list[str]:
         """Full-page fetches are expensive, so skip candidates priced absurdly far from the target.
@@ -582,6 +582,8 @@ class Monitor:
             return False
 
         rows = candidate_frame(target_full, fulls)
+        if job.get("material"):
+            target_full = {**target_full, "material": job["material"]}
         if rows.empty:
             rows = pd.DataFrame(columns=["candidate_item_id", "decision", "price", "reason"])
         elif self.args.spec_compare:
@@ -675,7 +677,7 @@ class Monitor:
             if musiq >= threshold:
                 self.state.add_many("seen", [item_id])
                 continue
-            candidates, confidence = self.find_candidates(target)
+            candidates, confidence, material = self.find_candidates(target)
             report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(item_id)}.html"
             LOG.info("BAD %s | MUSIQ %.1f | %s", item_id, musiq, report_url)
             self.state.add_many("seen", [item_id])
@@ -687,6 +689,7 @@ class Monitor:
                 if not candidates.empty else [],
                 "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
                 "title_confidence": confidence,
+                "material": material,
                 "attempts": 0,
             })
 
