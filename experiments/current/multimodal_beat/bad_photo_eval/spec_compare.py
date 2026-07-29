@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("spec_compare")
 MODEL = "gpt-5-nano"
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 MAX_DESCRIPTION = 600
 BATCH = 12
 
@@ -44,7 +44,7 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "same_product", "size_or_capacity", "full_size_equivalent",
+                "required": ["id", "same_product", "size_or_capacity", "full_article",
                              "spec_relation", "disqualifier", "note"],
                 "properties": {
                     "id": {"type": "string"},
@@ -53,7 +53,7 @@ SCHEMA = {
                         "type": ["string", "null"],
                         "description": "the size/capacity as written, e.g. '90 ml', '256GB', '18k', 'taglia M'",
                     },
-                    "full_size_equivalent": {
+                    "full_article": {
                         "type": "boolean",
                         "description": "false for miniatures, samples, travel or refill formats",
                     },
@@ -88,10 +88,12 @@ For each candidate return:
     as does the specific line or collection. Ring size does not matter.
 - size_or_capacity: the size exactly as the listing writes it ("90 ml", "256GB", "18k",
   "taglia M"), or null when the listing never states one.
-- full_size_equivalent: this is about FORMAT, not garment size. It is false only when the
-  listing is a miniature, sample, tester, travel format or refill - a 7 ml miniature of the
-  right fragrance is not full size. For clothing, shoes, jewellery and electronics it is
-  true: a size S shirt and a size XL shirt are both the full retail article.
+- full_article: true when the listing is the complete, normal retail article, as a shop
+  would sell it new. False when it is only a portion, a reduced format or an imitation of
+  the article: a fragrance sample, miniature, tester or refill; one earring of a pair or one
+  shoe of a pair; a kids or doll version of an adult item; a spare part or accessory sold
+  alone; a display dummy; packaging without its contents. This is about FORMAT, never about
+  garment or ring size - a size S shirt and a size XL shirt are both complete articles.
 - spec_relation: how that size compares to the target ("same", "lower", "higher", "unknown").
   Use "unknown" only when neither listing states a size.
 - disqualifier: why this listing must not set a comparable price, if any:
@@ -144,7 +146,7 @@ def compare_specs(target: dict, candidates: list[dict], cache_dir: Path, client=
     Returns an empty frame when the model is unavailable, so callers can fall back
     to the embedding-only decision.
     """
-    columns = ["candidate_item_id", "same_product", "size_or_capacity", "full_size_equivalent",
+    columns = ["candidate_item_id", "same_product", "size_or_capacity", "full_article",
                "spec_relation", "disqualifier", "note"]
     if not candidates:
         return pd.DataFrame(columns=columns)
@@ -213,7 +215,7 @@ def usable_comparables(rows: pd.DataFrame) -> pd.DataFrame:
         return rows.iloc[0:0]
     return rows[
         rows["same_product"].fillna(False).astype(bool)
-        & rows["full_size_equivalent"].fillna(True).astype(bool)
+        & rows["full_article"].fillna(True).astype(bool)
         & rows["spec_relation"].fillna("unknown").isin(["same", "unknown"])
         & rows["disqualifier"].fillna("none").eq("none")
     ]
@@ -247,8 +249,8 @@ def verdict_summary(rows: pd.DataFrame) -> str:
             label = "not judged"
         elif disqualifier != "none":
             label = REASON_LABELS.get(disqualifier, disqualifier)
-        elif not bool(row.get("full_size_equivalent", True)):
-            label = "not full size"
+        elif not bool(row.get("full_article", True)):
+            label = "not the full article"
         elif not bool(row.get("same_product", False)):
             label = "different product"
         else:

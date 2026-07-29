@@ -164,7 +164,9 @@ def write_full_report(
     rejected = rows[~rows["decision"].eq("kept")]
 
     def card(row) -> str:
-        photos = int(row.get("photo_count", 0) or 0)
+        # Rejected candidates never reach the photo pass, so this column is empty for them.
+        photo_count = row.get("photo_count")
+        photos = 0 if photo_count is None or pd.isna(photo_count) else int(photo_count)
         price = row.get("price")
         price_text = "—" if price is None or pd.isna(price) else f"€{float(price):.2f}"
         size = row.get("size_or_capacity")

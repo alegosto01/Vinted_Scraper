@@ -23,17 +23,18 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("title_query")
 MODEL = "gpt-5-nano"  # reasoning tokens are what recognise "stich" as Stitch; ~€0.07/day at current volume
-PROMPT_VERSION = 4  # bump to invalidate cached rewrites when the instructions change
+PROMPT_VERSION = 5  # bump to invalidate cached rewrites when the instructions change
 
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["brand", "model", "product_type", "query", "confidence"],
+    "required": ["brand", "model", "product_type", "query", "query_local", "confidence"],
     "properties": {
         "brand": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"], "description": "specific model or line name, null if the title names none"},
-        "product_type": {"type": ["string", "null"], "description": "what the object is, in Italian"},
-        "query": {"type": "string", "description": "Vinted search text: brand + model + product type, nothing else"},
+        "product_type": {"type": ["string", "null"], "description": "what the object is, in English"},
+        "query": {"type": "string", "description": "Vinted search text in English: brand + model + product type"},
+        "query_local": {"type": "string", "description": "the same query written in Italian"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
     },
 }
@@ -53,20 +54,24 @@ Rules for the query:
   brand when a brand is known - "Parfum prada" must stay "Prada profumo", never just "profumo"
 - use the canonical brand and model spelling ("Téléphone s22 ultra" -> "Samsung Galaxy S22 Ultra")
 - when no model name exists, keep the most distinctive descriptive word from the title
-  ("Tomorrowland botanic ring" -> "Tomorrowland botanic anello")
+  ("Tomorrowland botanic ring" -> "Tomorrowland botanic ring")
 - keep the material or finish whenever it separates this item from the brand's ordinary
   stock, because it sets the price: linen vs cotton, silk, leather, cashmere, 18k vs
   silver plated. "Camisa LINO Polo Ralph Lauren" must keep the linen: "Polo Ralph Lauren
-  camicia lino", never just "Polo Ralph Lauren camicia"
+  linen shirt", never just "Polo Ralph Lauren shirt"
 - never repeat a word already present in the brand name ("Polo Ralph Lauren Polo camicia"
   is wrong)
-- product type in Italian ("Camisa" -> "camicia", "Parfum" -> "profumo")
+- write the whole query in ENGLISH, translating the product type and any descriptive word
+  ("Camisa" -> "shirt", "Parfum" -> "perfume", "anello" -> "ring", "lino" -> "linen").
+  Brand and model names keep their own spelling and are never translated
 - never include: size, condition, price, emoji, shipping or seller phrases, "NUOVA", "vintage" unless it is part of the model name
 - 2 to 5 words; shorter is better than more specific
 - brand goes in "brand" alone, never merged with the model ("Samsung", not "Samsung Galaxy")
 - confidence "low" when the title does not identify a specific product well enough to find the
   same item (e.g. "Parfum prada" names no specific fragrance) - low confidence still keeps the
-  brand in the query, it only marks the result as weak"""
+  brand in the query, it only marks the result as weak
+
+Also return the query you would use in Italian, as query_local, following the same rules."""
 
 
 def _cache_path(cache_dir: Path, title: str) -> Path:
@@ -83,8 +88,8 @@ def rewrite_title(
     description: str | None = None,
 ) -> dict:
     """Return the parsed identity for `title`; falls back to the raw title on any failure."""
-    fallback = {"brand": brand, "model": None, "product_type": None,
-                "query": title, "confidence": "low", "source": "fallback"}
+    fallback = {"brand": brand, "model": None, "product_type": None, "query": title,
+                "query_local": title, "confidence": "low", "source": "fallback"}
     title = (title or "").strip()
     if not title:
         return fallback
