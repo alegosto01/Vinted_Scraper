@@ -1,9 +1,10 @@
-"""Full-data comparison (approach B) for the bad-photo deal monitor.
+"""Photo comparison over the full item pages, plus the report.
 
-Approach A (match_vinted_products) compares a target against catalog rows: title
-text plus the single catalog thumbnail. This module compares the *full* item
-pages instead - every photo of every item, plus description, brand and colour -
-and renders a report showing where the two approaches disagree.
+Text is judged by the model in spec_compare, not by embeddings: a cosine over
+two listing descriptions sat in a 0.04 band for every candidate and separated
+nothing. What embeddings are good for here is images - a continuous score that
+orders candidates - so this module compares every photo of the target against
+every photo of the candidates that already passed the text verdict.
 """
 from __future__ import annotations
 
@@ -28,12 +29,7 @@ LOG = logging.getLogger("full_compare")
 
 @dataclass(frozen=True)
 class FullSplitConfig:
-    photo_min: float = 0.60
-    title_min: float = 0.75
-    combined_min: float = 0.68
-    photo_weight: float = 0.45
-    title_weight: float = 0.35
-    desc_weight: float = 0.20
+    """Photo similarity ranks candidates; the spec verdict decides them."""
     max_photos: int = 8
 
 
@@ -91,116 +87,53 @@ def _photo_similarities(
     return best, mean_best, counts
 
 
-def _text_similarities(
+def score_images(
     target: dict,
     candidates: list[dict],
-    field: str,
-    encoder,
-    model_name: str,
-    cache_dir: Path,
-) -> dict[str, float]:
-    target_text = _text(target.get(field))
-    if not target_text:
-        return {}
-    usable = [c for c in candidates if _text(c.get(field))]
-    if not usable:
-        return {}
-    target_vector = _embed_titles(
-        [f"{target['item_id']}:{field}"], [target_text], "query", encoder, model_name, cache_dir, 16
-    )[0][0]
-    vectors, _ = _embed_titles(
-        [f"{c['item_id']}:{field}" for c in usable],
-        [_text(c.get(field)) for c in usable],
-        "passage",
-        encoder,
-        model_name,
-        cache_dir,
-        16,
-    )
-    return {
-        str(candidate["item_id"]): float(np.dot(target_vector, vector))
-        for candidate, vector in zip(usable, vectors)
-    }
-
-
-def score_full(
-    target: dict,
-    candidates: list[dict],
-    title_encoder,
     image_encoder,
-    title_model: str,
     image_model: str,
     cache_dir: Path,
     download_dir: Path,
     config: FullSplitConfig = FullSplitConfig(),
 ) -> pd.DataFrame:
-    """Score candidates against the target using every field of the full item pages."""
+    """Best and mean-best photo similarity for candidates that already passed the text verdict."""
     if not candidates:
         return pd.DataFrame()
     photo_best, photo_mean, photo_counts = _photo_similarities(
         target, candidates, image_encoder, image_model, cache_dir, download_dir, config.max_photos
     )
-    title_sims = _text_similarities(target, candidates, "title", title_encoder, title_model, cache_dir)
-    desc_sims = _text_similarities(target, candidates, "description", title_encoder, title_model, cache_dir)
-
-    target_brand = _text(target.get("brand")).casefold()
-    target_price = float(target.get("price") or 0) or np.nan
-
     records = []
     for candidate in candidates:
         item_id = str(candidate["item_id"])
-        photo = photo_best.get(item_id, np.nan)
-        title = title_sims.get(item_id, np.nan)
-        description = desc_sims.get(item_id, np.nan)
-        brand = _text(candidate.get("brand")).casefold()
-        brand_match = None if not brand or not target_brand else brand == target_brand
-        price = float(candidate.get("price") or 0) or np.nan
-
-        weights = {"photo": config.photo_weight, "title": config.title_weight, "desc": config.desc_weight}
-        parts = {"photo": photo, "title": title, "desc": description}
-        usable = {key: value for key, value in parts.items() if np.isfinite(value)}
-        total_weight = sum(weights[key] for key in usable)
-        combined = (
-            sum(weights[key] * value for key, value in usable.items()) / total_weight
-            if total_weight
-            else np.nan
-        )
-
-        failures = []
-        if not np.isfinite(photo) or photo < config.photo_min:
-            failures.append(f"photo<{config.photo_min}")
-        if not np.isfinite(title) or title < config.title_min:
-            failures.append(f"title<{config.title_min}")
-        if not np.isfinite(combined) or combined < config.combined_min:
-            failures.append(f"combined<{config.combined_min}")
-        if brand_match is False:
-            failures.append("brand mismatch")
-        records.append(
-            {
-                "candidate_item_id": item_id,
-                "candidate_title": _text(candidate.get("title")),
-                "listing_url": f"https://www.vinted.it/items/{item_id}",
-                "photo_similarity": photo,
-                "photo_mean_similarity": photo_mean.get(item_id, np.nan),
-                "photo_count": photo_counts.get(item_id, 0),
-                "title_similarity": title,
-                "description_similarity": description,
-                "brand": _text(candidate.get("brand")),
-                "brand_match": brand_match,
-                "price": price,
-                "price_ratio": price / target_price if np.isfinite(price) and np.isfinite(target_price) else np.nan,
-                "condition": _text(candidate.get("condition")),
-                "primary_image": (candidate.get("photo_urls") or [""])[0],
-                "combined_score": combined,
-                "decision": "non_kept" if failures else "kept",
-                "reason": "; ".join(failures) if failures else "passed every full-data floor",
-            }
-        )
-
+        records.append({
+            "candidate_item_id": item_id,
+            "photo_similarity": photo_best.get(item_id, np.nan),
+            "photo_mean_similarity": photo_mean.get(item_id, np.nan),
+            "photo_count": photo_counts.get(item_id, 0),
+        })
     frame = pd.DataFrame(records)
-    frame["combined_rank"] = deterministic_ranks(frame["combined_score"], frame["candidate_item_id"])
+    frame["photo_rank"] = deterministic_ranks(frame["photo_similarity"], frame["candidate_item_id"])
     shutil.rmtree(download_dir, ignore_errors=True)
-    return frame.sort_values("combined_rank", na_position="last").reset_index(drop=True)
+    return frame
+
+
+def candidate_frame(target: dict, candidates: list[dict]) -> pd.DataFrame:
+    """The listing facts every candidate carries, before any judgement."""
+    target_price = float(target.get("price") or 0) or np.nan
+    rows = []
+    for candidate in candidates:
+        price = float(candidate.get("price") or 0) or np.nan
+        rows.append({
+            "candidate_item_id": str(candidate["item_id"]),
+            "candidate_title": _text(candidate.get("title")),
+            "brand": _text(candidate.get("brand")),
+            "price": price,
+            "price_ratio": price / target_price if np.isfinite(price) and np.isfinite(target_price) else np.nan,
+            "condition": _text(candidate.get("condition")),
+            "primary_image": (candidate.get("photo_urls") or [""])[0],
+            "listing_url": f"https://www.vinted.it/items/{candidate['item_id']}",
+        })
+    return pd.DataFrame(rows)
 
 
 def _fmt(value: object, digits: int = 3) -> str:
@@ -237,8 +170,7 @@ def write_full_report(
         size = row.get("size_or_capacity")
         size_text = "" if size is None or pd.isna(size) else f" · {html.escape(str(size))}"
         scores = (f"photos {photos} · best {_fmt(row.get('photo_similarity'))}"
-                  f" · title {_fmt(row.get('title_similarity'))}"
-                  f" · desc {_fmt(row.get('description_similarity'))}")
+                  f" · mean {_fmt(row.get('photo_mean_similarity'))}")
         return f"""<article>
 <img src="{html.escape(str(row.get('primary_image') or ''))}" loading="lazy">
 <h3>{html.escape(str(row.get('candidate_title') or ''))}</h3>

@@ -23,7 +23,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("title_query")
 MODEL = "gpt-5-nano"  # reasoning tokens are what recognise "stich" as Stitch; ~€0.07/day at current volume
-PROMPT_VERSION = 3  # bump to invalidate cached rewrites when the instructions change
+PROMPT_VERSION = 4  # bump to invalidate cached rewrites when the instructions change
 
 SCHEMA = {
     "type": "object",
@@ -54,6 +54,12 @@ Rules for the query:
 - use the canonical brand and model spelling ("Téléphone s22 ultra" -> "Samsung Galaxy S22 Ultra")
 - when no model name exists, keep the most distinctive descriptive word from the title
   ("Tomorrowland botanic ring" -> "Tomorrowland botanic anello")
+- keep the material or finish whenever it separates this item from the brand's ordinary
+  stock, because it sets the price: linen vs cotton, silk, leather, cashmere, 18k vs
+  silver plated. "Camisa LINO Polo Ralph Lauren" must keep the linen: "Polo Ralph Lauren
+  camicia lino", never just "Polo Ralph Lauren camicia"
+- never repeat a word already present in the brand name ("Polo Ralph Lauren Polo camicia"
+  is wrong)
 - product type in Italian ("Camisa" -> "camicia", "Parfum" -> "profumo")
 - never include: size, condition, price, emoji, shipping or seller phrases, "NUOVA", "vintage" unless it is part of the model name
 - 2 to 5 words; shorter is better than more specific

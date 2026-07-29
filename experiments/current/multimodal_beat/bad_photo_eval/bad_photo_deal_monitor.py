@@ -42,7 +42,7 @@ from match_vinted_products import (  # noqa: E402
     E5TitleEncoder,
     choose_device,
 )
-from full_compare import FullSplitConfig, score_full, write_full_report  # noqa: E402
+from full_compare import FullSplitConfig, candidate_frame, score_images, write_full_report  # noqa: E402
 from full_item_fetch import cached_item, fetch_item  # noqa: E402
 from spec_compare import compare_specs, usable_comparables, verdict_summary  # noqa: E402
 from title_query import rewrite_title  # noqa: E402
@@ -491,25 +491,26 @@ class Monitor:
 
         return fetch_item(session, item_id, self.output / "full_items", HEADERS, on_status=on_status)
 
-    def judge_specs(self, target_full: dict, fulls: list[dict], rows_b: pd.DataFrame) -> pd.DataFrame:
-        """Let the model decide what is genuinely comparable; embeddings only shortlist."""
+    def judge_specs(self, target_full: dict, fulls: list[dict], rows: pd.DataFrame) -> pd.DataFrame:
+        """The model reads titles and descriptions and decides what is comparable."""
         verdicts = compare_specs(target_full, fulls, self.output / "spec_cache")
+        rows = rows.copy()
         if verdicts.empty:
-            LOG.warning("No spec verdicts; keeping the embedding decision")
-            return rows_b
-        rows = rows_b.copy()
-        rows["embedding_decision"] = rows["decision"]
+            LOG.warning("No spec verdicts; treating every candidate as unjudged")
+            rows["decision"] = "non_kept"
+            rows["reason"] = "not judged"
+            return rows
         rows["candidate_item_id"] = rows["candidate_item_id"].astype(str)
         rows = rows.merge(verdicts, on="candidate_item_id", how="left")
         usable = set(usable_comparables(rows)["candidate_item_id"])
         rows["decision"] = np.where(rows["candidate_item_id"].isin(usable), "kept", "non_kept")
         rows["reason"] = np.where(
             rows["candidate_item_id"].isin(usable),
-            "same product, full size, no disqualifier",
+            "same product, comparable spec",
             rows["disqualifier"].fillna("not judged").replace("none", "different product")
             + rows["note"].fillna("").radd(": ").where(rows["note"].fillna("").ne(""), ""),
         )
-        LOG.info("Spec pass: %d of %d candidates usable as comparables", len(usable), len(rows))
+        LOG.info("Text verdict: %d of %d candidates comparable", len(usable), len(rows))
         return rows
 
     def run_full_compare(self, job: dict) -> bool:
@@ -529,24 +530,30 @@ class Monitor:
         if not fulls and job["candidate_ids"]:
             return False
 
-        rows_b = pd.DataFrame(columns=["candidate_item_id", "decision", "price"])
-        if fulls:
+        rows = candidate_frame(target_full, fulls)
+        if rows.empty:
+            rows = pd.DataFrame(columns=["candidate_item_id", "decision", "price", "reason"])
+        elif self.args.spec_compare:
+            rows = self.judge_specs(target_full, fulls, rows)
+        else:
+            rows["decision"] = "kept"
+            rows["reason"] = "text verdict disabled"
+
+        # Photos are only worth downloading for candidates the text already accepted.
+        survivors = [item for item in fulls
+                     if str(item["item_id"]) in set(rows.loc[rows["decision"].eq("kept"), "candidate_item_id"])]
+        if survivors:
             with self.encoder_lock:
-                title_encoder, image_encoder = self.encoders()
-                rows_b = score_full(
-                    target_full, fulls, title_encoder, image_encoder,
-                    self.args.title_model, self.args.image_model,
+                _, image_encoder = self.encoders()
+                photos = score_images(
+                    target_full, survivors, image_encoder, self.args.image_model,
                     cache_dir=self.output / "embedding_cache",
                     download_dir=matches / "full_photos",
-                    config=FullSplitConfig(
-                        photo_min=self.args.full_photo_min,
-                        title_min=self.args.full_title_min,
-                        combined_min=self.args.full_combined_min,
-                        max_photos=self.args.max_photos,
-                    ),
+                    config=FullSplitConfig(max_photos=self.args.max_photos),
                 )
-        if self.args.spec_compare and not rows_b.empty:
-            rows_b = self.judge_specs(target_full, fulls, rows_b)
+            rows = rows.merge(photos, on="candidate_item_id", how="left")
+            LOG.info("Compared photos for %d comparable candidates", len(survivors))
+        rows_b = rows
         rows_b.to_csv(matches / "split_full.csv", index=False)
 
         target = job["target"]

@@ -26,7 +26,7 @@ from config.project_config import settings  # noqa: E402,F401  (imports load_dot
 
 LOG = logging.getLogger("spec_compare")
 MODEL = "gpt-5-nano"
-PROMPT_VERSION = 2
+PROMPT_VERSION = 4
 MAX_DESCRIPTION = 600
 BATCH = 12
 
@@ -74,11 +74,24 @@ For each candidate return:
 - same_product: true only if a buyer wanting the target would accept this listing instead.
   A different generation, a different fragrance or line, or a different format is NOT the
   same product, even when the brand matches.
+
+  What counts as "the same" depends on the category, because what sets the price differs:
+  * clothing, shoes, bags: the same model and material in a DIFFERENT SIZE is still the same
+    product - garment sizes barely move the second-hand price. A different colourway is
+    usually still comparable; a different model or line is not.
+  * fragrances, cosmetics: the exact fragrance and concentration decide the price. Paradoxe
+    is not Paradigme, and eau de toilette is not eau de parfum. Volume matters: only compare
+    a 90 ml with a 90 ml unless nothing else exists.
+  * electronics: model and generation must match exactly, and storage or capacity is part of
+    the price. An S22 is not an S22 Ultra; 128GB is not 512GB.
+  * jewellery, watches: material and carat decide the price (925 silver is not 18k gold),
+    as does the specific line or collection. Ring size does not matter.
 - size_or_capacity: the size exactly as the listing writes it ("90 ml", "256GB", "18k",
   "taglia M"), or null when the listing never states one.
-- full_size_equivalent: false whenever the listing is a miniature, sample, tester, travel
-  format, refill, or any reduced-size version of the product. A 7 ml miniature of the right
-  fragrance is NOT full size. Only true for the normal retail article.
+- full_size_equivalent: this is about FORMAT, not garment size. It is false only when the
+  listing is a miniature, sample, tester, travel format or refill - a 7 ml miniature of the
+  right fragrance is not full size. For clothing, shoes, jewellery and electronics it is
+  true: a size S shirt and a size XL shirt are both the full retail article.
 - spec_relation: how that size compares to the target ("same", "lower", "higher", "unknown").
   Use "unknown" only when neither listing states a size.
 - disqualifier: why this listing must not set a comparable price, if any:
