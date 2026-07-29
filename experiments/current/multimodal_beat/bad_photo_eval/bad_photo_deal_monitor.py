@@ -429,10 +429,19 @@ class Monitor:
         for text in dict.fromkeys(q for q in queries if q):
             found = self.client.title_search(str(target["Title"]), status_id, query=text)
             LOG.info("%s: %d rows for %r", target["Dataid"], len(found), text)
-            frames.append(found)
+            if not found.empty:
+                found = found.copy()
+                found["QueryRank"] = range(len(found))
+                frames.append(found)
 
-        candidates = (pd.concat(frames, ignore_index=True).drop_duplicates("Dataid")
-                      if any(not frame.empty for frame in frames) else pd.DataFrame())
+        # Interleave the queries rather than concatenating them: whatever cap applies later
+        # would otherwise be filled entirely by the first, broadest query.
+        candidates = pd.DataFrame()
+        if frames:
+            candidates = (pd.concat(frames, ignore_index=True)
+                          .sort_values("QueryRank", kind="stable")
+                          .drop_duplicates("Dataid")
+                          .reset_index(drop=True))
 
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
@@ -449,7 +458,11 @@ class Monitor:
         band = self.args.price_band
         ids = candidates["Dataid"].astype(str)
         keep = prices.between(target_price / band, target_price * band) & ids.ne(str(target_id))
-        return ids[keep].tolist()
+        chosen = ids[keep].tolist()
+        if len(chosen) > self.args.max_candidates:
+            LOG.info("Capping %d in-band candidates to %d", len(chosen), self.args.max_candidates)
+            chosen = chosen[: self.args.max_candidates]
+        return chosen
 
     def _queue_read(self) -> list[dict]:
         if not self.queue_path.exists():
@@ -723,6 +736,8 @@ def parse_args():
     parser.add_argument("--min-kept", type=int, default=3)
     parser.add_argument("--full-gap-seconds", type=float, default=90.0)
     parser.add_argument("--catalog-block-pause", type=float, default=600.0)
+    parser.add_argument("--max-candidates", type=int, default=40,
+                        help="most candidates to fetch full pages for, per alert")
     parser.add_argument("--price-band", type=float, default=10.0,
                         help="skip candidates priced beyond this multiple of the target price")
     parser.add_argument("--max-photos", type=int, default=8)
