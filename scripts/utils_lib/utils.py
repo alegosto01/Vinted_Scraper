@@ -7,7 +7,14 @@ from selenium.common.exceptions import WebDriverException
 import pandas as pd
 import re
 import Scraper
-PRICE_TOKEN_RE = re.compile(r"EUR?\s*([\d.,]+)".replace("EUR?", "€"))
+PRICE_TOKEN_RE = re.compile(r"€\s*([\d.,]+)")
+# Vinted moved the euro sign after the amount ("90.00 €") and dropped the
+# "protezione acquisti" wording from the card title, so both orders are matched here.
+PRICE_TOKEN_TRAILING_RE = re.compile(r"([\d.,]+)\s*€")
+PRICE_PAIR_PATTERNS = [
+    re.compile(r"€\s*([\d.,]+)\D{0,40}€\s*([\d.,]+)"),
+    re.compile(r"([\d.,]+)\s*€\D{0,40}([\d.,]+)\s*€"),
+]
 FEE_INCLUDED_PAIR_PATTERNS = [
     re.compile(r'€\s*([\d.,]+)\D{0,40}€\s*([\d.,]+)\D{0,120}protezione acquisti', re.IGNORECASE),
     re.compile(r'([\d.,]+)\s*€\D{0,40}([\d.,]+)\s*€\D{0,120}protezione acquisti', re.IGNORECASE),
@@ -26,9 +33,19 @@ def extract_listing_price_text(details: str) -> str:
         if second_price:
             return second_price
 
-    matches = PRICE_TOKEN_RE.findall(text)
-    if matches:
-        return matches[0].strip().rstrip(",.")
+    # A card shows the asking price and the price including buyer protection; the
+    # second has always been the one used, so keep taking it when both are present.
+    for pattern in PRICE_PAIR_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            second_price = str(match.group(2)).strip().rstrip(",.")
+            if second_price:
+                return second_price
+
+    for pattern in (PRICE_TOKEN_RE, PRICE_TOKEN_TRAILING_RE):
+        matches = pattern.findall(text)
+        if matches:
+            return str(matches[0]).strip().rstrip(",.")
 
     split = text.split("€")
     if len(split) > 1:
@@ -144,14 +161,11 @@ def split_data(entry):
 
     # print(f"DETAILS: {details}")
     price = extract_listing_price_text(details)
-    if "brand:" in details:
-        brand = details.split('brand:')[1].split(',')[0].strip()  # Extract brand
-    else:
-        brand = "No brand"
-    if "taglia:" in details:
-        size = details.split('taglia:')[1].split(",")[0].strip()  # Extract size
-    else:
-        size = 0
+    # Vinted capitalises these labels now ("Brand:", "Taglia:"), so match either case.
+    brand_match = re.search(r"brand:\s*([^,]+)", details, re.IGNORECASE)
+    brand = brand_match.group(1).strip() if brand_match else "No brand"
+    size_match = re.search(r"taglia:\s*([^,]+)", details, re.IGNORECASE)
+    size = size_match.group(1).strip() if size_match else 0
     return title.strip(), price, brand, size
 
 
