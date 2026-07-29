@@ -186,6 +186,13 @@ def fetch_item(
         LOG.warning("Item %s: parsed without a title, not caching", item_id)
         return None
 
+    # A sold or removed listing still answers 200 with a stub page - the og:title fallback
+    # reads "Page not found" off it - so anything carrying no price, no condition and no
+    # description is not a listing, whatever its title says.
+    if data.get("price") is None and not data.get("condition") and not data.get("description"):
+        LOG.info("Item %s: no longer listed (%r)", item_id, str(data.get("title"))[:40])
+        return None
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     # Both the main loop and the worker can fetch the same item, so the temp file needs a
     # unique name; os.replace is atomic but a shared temp name is not.

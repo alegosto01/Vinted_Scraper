@@ -104,31 +104,171 @@ def scan(args) -> None:
 
 
 def score(args) -> None:
-    import pyiqa
     import torch
 
+    torch.set_num_threads(args.threads)
+    import pyiqa
+
     frame = pd.read_csv(SCAN_PATH)
+    if args.search:
+        frame = frame[frame["search"] == args.search]
     # Highest price first: no cheap signal predicts MUSIQ, so the only sane ordering is
     # the one where a missed bad photo costs the most.
-    frame = frame.sort_values("Price", ascending=False)
-    if args.skip:
-        frame = frame.iloc[args.skip:]
-    frame = frame.head(args.limit).copy()
-    metric = pyiqa.create_metric("musiq", device="cuda" if torch.cuda.is_available() else "cpu")
-    scores = []
-    for index, path in enumerate(frame["image_path"], 1):
+    frame = frame.sort_values("Price", ascending=False).reset_index(drop=True)
+    if args.workers > 1:
+        frame = frame[frame.index % args.workers == args.worker_index].copy()
+    if args.limit:
+        frame = frame.head(args.limit).copy()
+
+    part = OUT_DIR / f"scored_part{args.worker_index}.csv"
+    # This laptop occasionally dies mid-run, so results are appended as they are produced
+    # and anything already scored is skipped on restart.
+    done: set[str] = set()
+    if part.exists():
         try:
-            scores.append(float(metric(str(path))))
+            done = set(pd.read_csv(part, usecols=["Dataid"])["Dataid"].astype(str))
         except Exception:
-            scores.append(float("nan"))
-        if index % 250 == 0:
-            print(f"  {index}/{len(frame)}", flush=True)
-    frame["musiq"] = scores
-    out = SCORED_PATH if not args.skip else SCORED_PATH.with_name(f"scored_{args.skip}.csv")
-    frame.sort_values("musiq").to_csv(out, index=False)
-    usable = frame["musiq"].dropna()
+            LOG_BROKEN = part.with_suffix(".broken")
+            part.rename(LOG_BROKEN)
+            print(f"unreadable checkpoint moved to {LOG_BROKEN}")
+    todo = frame[~frame["Dataid"].astype(str).isin(done)]
+    print(f"worker {args.worker_index}: {len(todo)} to score, {len(done)} already done", flush=True)
+
+    metric = pyiqa.create_metric("musiq", device="cuda" if torch.cuda.is_available() else "cpu")
+    batch, written = [], 0
+    for index, row in enumerate(todo.itertuples(index=False), 1):
+        try:
+            value = float(metric(str(row.image_path)))
+        except Exception:
+            value = float("nan")
+        batch.append({**row._asdict(), "musiq": value})
+        if len(batch) >= args.checkpoint or index == len(todo):
+            chunk = pd.DataFrame(batch)
+            chunk.to_csv(part, mode="a", header=not part.exists(), index=False)
+            written += len(batch)
+            batch = []
+            print(f"  worker {args.worker_index}: {index}/{len(todo)} (saved {written})", flush=True)
+    print(f"worker {args.worker_index} finished, wrote {part}")
+
+
+def _unlocker_get(url: str, tries: int = 3):
+    import requests
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from config.project_config import settings
+
+    for _ in range(tries):
+        response = requests.post(
+            "https://api.brightdata.com/request",
+            headers={"Authorization": f"Bearer {settings.proxy.api_token}",
+                     "Content-Type": "application/json"},
+            json={"zone": "web_unlocker1", "url": url, "format": "raw",
+                  "method": "GET", "country": "IT"},
+            timeout=180,
+        )
+        if (response.text or "").strip():
+            return response
+    return response
+
+
+def live(args) -> None:
+    """Check whether the worst-scoring listings are still on sale.
+
+    A sold or removed listing answers with a stub page - 122 bytes or a ~19KB
+    placeholder - while a live one is around 2.3MB and carries og:title. That size
+    gap is the signal; keyword matching is useless because a live page mentions
+    "venduto" dozens of times in seller stats and related items.
+    """
+    import re
+    from concurrent.futures import ThreadPoolExecutor
+
+    frame = load_scored().head(args.limit).copy()
+    print(f"checking {len(frame)} listings", flush=True)
+
+    def check(item_id: str) -> tuple[str, bool, int]:
+        response = _unlocker_get(f"https://www.vinted.it/items/{item_id}")
+        text = response.text or ""
+        alive = len(text) > 100_000 and bool(re.search(r'<meta property="og:title"', text))
+        return str(item_id), alive, len(text)
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        results = dict((i, (a, n)) for i, a, n in pool.map(check, frame["Dataid"].astype(str)))
+    frame["still_listed"] = frame["Dataid"].astype(str).map(lambda i: results.get(i, (None, 0))[0])
+    frame["page_bytes"] = frame["Dataid"].astype(str).map(lambda i: results.get(i, (None, 0))[1])
+    out = OUT_DIR / "live_checked.csv"
+    frame.to_csv(out, index=False)
+    alive = int(frame["still_listed"].fillna(False).sum())
+    print(f"still listed: {alive} of {len(frame)} ({100*alive/max(len(frame),1):.0f}%)")
     print(f"wrote {out}")
-    print(usable.describe(percentiles=[0.01, 0.05, 0.25, 0.5]).to_string())
+
+
+def load_scored() -> pd.DataFrame:
+    parts = sorted(OUT_DIR.glob("scored_part*.csv"))
+    if not parts:
+        raise SystemExit("no scored_part*.csv yet - run score first")
+    frame = pd.concat([pd.read_csv(p) for p in parts], ignore_index=True)
+    frame = frame.dropna(subset=["musiq"]).drop_duplicates("Dataid")
+    return frame.sort_values("musiq")
+
+
+REPORTS = HERE / "data" / "deal_monitor" / "reports"
+
+
+def report(args) -> None:
+    """Page of the worst-photographed stale listings, newest scoring run included."""
+    import base64
+    import html as html_lib
+
+    frame = load_scored()
+    checked = OUT_DIR / "live_checked.csv"
+    if checked.exists():
+        status = pd.read_csv(checked, usecols=["Dataid", "still_listed"])
+        frame = frame.merge(status, on="Dataid", how="left")
+        if args.only_live:
+            frame = frame[frame["still_listed"].fillna(False)]
+    frame = frame.head(args.limit)
+
+    def thumb(path: str) -> str:
+        try:
+            return "data:image/webp;base64," + base64.b64encode(Path(path).read_bytes()).decode()
+        except Exception:
+            return ""
+
+    cards = []
+    for row in frame.itertuples(index=False):
+        listed = getattr(row, "still_listed", None)
+        badge = ("" if listed is None or pd.isna(listed)
+                 else "<span class='live'>still listed</span>" if listed
+                 else "<span class='gone'>gone</span>")
+        cards.append(f"""<article>
+<img src="{thumb(row.image_path)}" loading="lazy">
+<p class="score">MUSIQ <b>{row.musiq:.1f}</b> · €{float(row.Price):.0f} · {int(row.age_days)}d old {badge}</p>
+<p class="title">{html_lib.escape(str(row.Title)[:70])}</p>
+<a href="https://www.vinted.it/items/{row.Dataid}" target="_blank">open on Vinted</a>
+</article>""")
+
+    out = REPORTS / "stale_bad_photos.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(f"""<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stale listings with bad photos</title>
+<style>
+body{{font:15px system-ui;margin:14px auto;max-width:1100px;background:#f4f4f4;color:#222;padding:0 10px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}}
+article{{background:#fff;border:1px solid #ddd;border-radius:10px;padding:8px}}
+img{{width:100%;aspect-ratio:.72;object-fit:cover;border-radius:7px;background:#eee}}
+.score{{margin:6px 0 2px;font-size:13px}} .title{{margin:0 0 6px;font-size:12px;color:#555}}
+.live{{background:#d8f0d8;border-radius:20px;padding:1px 7px;font-size:11px}}
+.gone{{background:#f0dcdc;border-radius:20px;padding:1px 7px;font-size:11px}}
+a{{font-size:12px;color:#0645ad}}
+</style>
+<h1>Stale listings with bad photos</h1>
+<p>{len(frame)} of {len(load_scored())} scored so far, worst MUSIQ first. All unsold as of the
+last check, {args.min_age}+ days old, priced at 80 EUR or more. "gone" means the listing has
+since sold or been removed.</p>
+<div class="grid">{''.join(cards)}</div>
+""", encoding="utf-8")
+    print(f"wrote {out} ({len(frame)} cards)")
 
 
 def main() -> None:
@@ -139,10 +279,23 @@ def main() -> None:
     scanner.add_argument("--min-age-days", type=int, default=60)
     scanner.set_defaults(func=scan)
     scorer = sub.add_parser("score")
-    scorer.add_argument("--limit", type=int, default=15000)
-    scorer.add_argument("--skip", type=int, default=0,
-                        help="rows to skip, so several processes can split the pool")
+    scorer.add_argument("--limit", type=int, default=0, help="0 scores the whole selection")
+    scorer.add_argument("--search", default="", help="restrict to one search folder")
+    scorer.add_argument("--workers", type=int, default=1)
+    scorer.add_argument("--worker-index", type=int, default=0)
+    scorer.add_argument("--threads", type=int, default=2, help="torch threads per worker")
+    scorer.add_argument("--checkpoint", type=int, default=100,
+                        help="append results to disk every N images")
     scorer.set_defaults(func=score)
+    checker = sub.add_parser("live")
+    checker.add_argument("--limit", type=int, default=200)
+    checker.add_argument("--workers", type=int, default=4)
+    checker.set_defaults(func=live)
+    reporter = sub.add_parser("report")
+    reporter.add_argument("--limit", type=int, default=120)
+    reporter.add_argument("--min-age", type=int, default=60)
+    reporter.add_argument("--only-live", action="store_true")
+    reporter.set_defaults(func=report)
     args = parser.parse_args()
     args.func(args)
 

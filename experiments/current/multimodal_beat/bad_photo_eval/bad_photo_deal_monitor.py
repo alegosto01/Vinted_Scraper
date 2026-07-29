@@ -450,6 +450,22 @@ class Monitor:
                           .drop_duplicates("Dataid")
                           .reset_index(drop=True))
 
+        # A model reference lifted from the description can be too precise to match anything
+        # - "Gucci GG0563SKN sunglasses" returned one row - so fall back to brand plus
+        # product type when the specific queries come back thin.
+        brand = (rewrite.get("brand") or target.get("Brand") or "").strip()
+        product_type = (rewrite.get("product_type") or "").strip()
+        broad = f"{brand} {product_type}".strip()
+        if len(candidates) < self.args.widen_below and broad and broad.casefold() != query.casefold():
+            LOG.info("%s: only %d candidates, widening to %r",
+                     target["Dataid"], len(candidates), broad)
+            extra = self.client.title_search(str(target["Title"]), status_id, query=broad)
+            if not extra.empty:
+                extra = extra.copy()
+                extra["QueryRank"] = range(len(extra))
+                candidates = (pd.concat([candidates, extra], ignore_index=True)
+                              .drop_duplicates("Dataid").reset_index(drop=True))
+
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_path, index=False)
@@ -759,6 +775,8 @@ def parse_args():
                         help="search with the raw listing title instead of the rewritten query")
     parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
                         help="decide comparables from embeddings alone, without the model")
+    parser.add_argument("--widen-below", type=int, default=10,
+                        help="add a brand + product type search when fewer candidates than this")
     parser.add_argument("--no-dual-search", dest="dual_search", action="store_false",
                         help="search only the English query instead of English and Italian")
     parser.add_argument("--no-image-llm", dest="image_llm", action="store_false",
