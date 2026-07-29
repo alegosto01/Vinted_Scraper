@@ -207,75 +207,50 @@ def _fmt(value: object, digits: int = 3) -> str:
     return "—" if value is None or pd.isna(value) else f"{float(value):.{digits}f}"
 
 
-def _verdict_block(name: str, analysis: dict) -> str:
+def _verdict_block(analysis: dict) -> str:
     median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
     discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
-    return (
-        f"<div class='verdict'><h3>{html.escape(name)}</h3>"
-        f"<p><b>{html.escape(analysis['verdict'])}</b></p>"
-        f"<p>kept {analysis['count']} · median {median} · discount {discount}</p></div>"
-    )
+    return (f"<div class='verdict'><h3>{html.escape(analysis['verdict'])}</h3>"
+            f"<p>{analysis['count']} comparable listings · median {median} · "
+            f"target vs median {discount}</p></div>")
 
 
-def write_dual_report(
+def write_full_report(
     path: Path,
     target: dict,
     musiq: float,
-    rows_a: pd.DataFrame,
-    rows_b: pd.DataFrame,
-    analysis_a: dict,
-    analysis_b: dict,
-    max_rejected: int = 24,
+    rows: pd.DataFrame,
+    analysis: dict,
+    max_rejected: int = 40,
 ) -> None:
-    """Rewrite the mobile report so both approaches' kept/non-kept sets are visible."""
-    a = rows_a.set_index(rows_a["candidate_item_id"].astype(str))
-    b = rows_b.set_index(rows_b["candidate_item_id"].astype(str))
-    item_ids = list(dict.fromkeys([*a.index, *b.index]))
+    """One report: the comparables that count, then everything rejected and why."""
+    rows = rows.copy()
+    if "decision" not in rows:
+        rows["decision"] = "non_kept"
+    kept = rows[rows["decision"].eq("kept")]
+    rejected = rows[~rows["decision"].eq("kept")]
 
-    def card(item_id: str) -> str:
-        row_a = a.loc[item_id] if item_id in a.index else None
-        row_b = b.loc[item_id] if item_id in b.index else None
-        source = row_b if row_b is not None else row_a
-        title = str(source.get("candidate_title", ""))
-        # Only the full pass carries photos and price; catalog-only rows fall back to blanks.
-        image = str(source.get("primary_image") or source.get("Images") or "")
-        price = source.get("price", source.get("Price", None))
+    def card(row) -> str:
+        photos = int(row.get("photo_count", 0) or 0)
+        price = row.get("price")
         price_text = "—" if price is None or pd.isna(price) else f"€{float(price):.2f}"
-        photos = 0 if row_b is None else int(row_b.get("photo_count", 0) or 0)
-        line_a = (
-            "not fetched by catalog pass"
-            if row_a is None
-            else f"title {_fmt(row_a['title_similarity'])} · image {_fmt(row_a['image_similarity'])} · combined {_fmt(row_a['combined_score'])}"
-        )
-        line_b = (
-            "full page not fetched"
-            if row_b is None
-            else (
-                f"photos {photos} · best {_fmt(row_b['photo_similarity'])} · mean {_fmt(row_b['photo_mean_similarity'])}"
-                f" · title {_fmt(row_b['title_similarity'])} · desc {_fmt(row_b['description_similarity'])}"
-                f" · combined {_fmt(row_b['combined_score'])}"
-            )
-        )
-        brand = "" if row_b is None or not row_b.get("brand") else f" · {html.escape(str(row_b['brand']))}"
+        size = row.get("size_or_capacity")
+        size_text = "" if size is None or pd.isna(size) else f" · {html.escape(str(size))}"
+        scores = (f"photos {photos} · best {_fmt(row.get('photo_similarity'))}"
+                  f" · title {_fmt(row.get('title_similarity'))}"
+                  f" · desc {_fmt(row.get('description_similarity'))}")
         return f"""<article>
-<img src="{html.escape(image)}" loading="lazy">
-<h3>{html.escape(title)}</h3>
-<p><b>{price_text}</b>{brand}</p>
-<code>catalog: {line_a}</code>
-<code>full: {line_b}</code>
-<a href="https://www.vinted.it/items/{html.escape(item_id)}" target="_blank" rel="noopener">Open on Vinted</a>
+<img src="{html.escape(str(row.get('primary_image') or ''))}" loading="lazy">
+<h3>{html.escape(str(row.get('candidate_title') or ''))}</h3>
+<p><b>{price_text}</b>{size_text}</p>
+<p class="reason">{html.escape(str(row.get('reason') or ''))}</p>
+<code>{scores}</code>
+<a href="https://www.vinted.it/items/{html.escape(str(row['candidate_item_id']))}" target="_blank" rel="noopener">Open on Vinted</a>
 </article>"""
 
-    buckets: dict[str, list[str]] = {"both": [], "a_only": [], "b_only": [], "neither": []}
-    for item_id in item_ids:
-        kept_a = item_id in a.index and str(a.loc[item_id, "decision"]) == "kept"
-        kept_b = item_id in b.index and str(b.loc[item_id, "decision"]) == "kept"
-        key = "both" if kept_a and kept_b else "a_only" if kept_a else "b_only" if kept_b else "neither"
-        buckets[key].append(item_id)
-
-    def grid(key: str, limit: int | None = None) -> str:
-        chosen = buckets[key][:limit] if limit else buckets[key]
-        return f"<div class='grid'>{''.join(card(item_id) for item_id in chosen)}</div>" or ""
+    def grid(frame, limit=None) -> str:
+        chosen = frame.head(limit) if limit else frame
+        return f"<div class='grid'>{''.join(card(row) for _, row in chosen.iterrows())}</div>"
 
     document = f"""<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -285,10 +260,9 @@ body{{font:15px system-ui;margin:14px;background:#f4f4f4;color:#222}}a{{color:#0
 .target,article,.verdict{{background:white;border:1px solid #ddd;border-radius:10px;padding:12px}}
 .target img,article img{{width:100%;height:240px;object-fit:contain;background:#eee;border-radius:7px}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}}
-.verdicts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:10px 0}}
-.verdict h3{{margin:0 0 6px;font-size:15px}}
-code{{display:block;font-size:12px;overflow-wrap:anywhere}}
-.warning{{background:#fff3cd;padding:12px;border-radius:8px}}
+.verdict{{margin:10px 0}}.verdict h3{{margin:0 0 6px;font-size:15px}}
+.reason{{color:#666;font-size:13px}}
+code{{display:block;font-size:12px;overflow-wrap:anywhere;color:#555}}
 h2{{font-size:17px;margin-top:22px}}h2 small{{font-weight:400;color:#666}}
 </style>
 <h1>{html.escape(str(target['Title']))}</h1>
@@ -297,14 +271,12 @@ h2{{font-size:17px;margin-top:22px}}h2 small{{font-weight:400;color:#666}}
 <p>MUSIQ {musiq:.1f} (0-100, lower is worse)</p>
 <p><a href="{html.escape(str(target['Link']))}" target="_blank" rel="noopener">Open target on Vinted</a></p>
 </section>
-<div class="verdicts">{_verdict_block('Catalog data (title + 1 photo)', analysis_a)}{_verdict_block('Full data (all photos + description)', analysis_b)}</div>
-<p class="warning">Catalog pass compares the listing title and the single catalog thumbnail.
-Full pass compares every photo of both items, the description, and the brand.
-Thresholds are provisional, not probabilities. Asking prices, not sold prices.</p>
-<h2>Kept by both <small>({len(buckets['both'])})</small></h2>{grid('both')}
-<h2>Kept only by catalog data <small>({len(buckets['a_only'])})</small></h2>{grid('a_only')}
-<h2>Kept only by full data <small>({len(buckets['b_only'])})</small></h2>{grid('b_only')}
-<h2>Rejected by both <small>({len(buckets['neither'])}, showing {min(len(buckets['neither']), max_rejected)})</small></h2>{grid('neither', max_rejected)}
+{_verdict_block(analysis)}
+<p class="reason">Candidates come from a search built from this listing's own title and
+description. Every photo and the description of both sides are compared, then each candidate
+is judged as a price comparable. Asking prices, not sold prices.</p>
+<h2>Comparable <small>({len(kept)})</small></h2>{grid(kept)}
+<h2>Rejected <small>({len(rejected)}, showing {min(len(rejected), max_rejected)})</small></h2>{grid(rejected, max_rejected)}
 """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(document, encoding="utf-8")

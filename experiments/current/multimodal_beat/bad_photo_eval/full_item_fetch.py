@@ -120,6 +120,21 @@ def parse_item_page(html: str, item_id: str) -> dict:
     }
 
 
+def cached_item(item_id: str, cache_dir: Path, max_age_days: float = 14.0) -> dict | None:
+    """The cached parse if it is still fresh, so callers can skip pacing entirely."""
+    cache_file = Path(cache_dir) / f"{item_id}.json"
+    if not cache_file.exists():
+        return None
+    try:
+        cached = json.loads(cache_file.read_text())
+        age_days = (datetime.now(timezone.utc)
+                    - datetime.fromisoformat(cached["fetched_at"])).total_seconds() / 86400
+        return cached if age_days < max_age_days else None
+    except Exception as exc:
+        LOG.warning("Item %s: bad cache entry, refetching: %s", item_id, exc)
+        return None
+
+
 def fetch_item(
     session,
     item_id: str,

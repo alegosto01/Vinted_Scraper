@@ -1,8 +1,9 @@
 """Slow local bad-photo deal monitor for Vinted.
 
 One Vinted catalog request is made at most once per minute. New listings with
-MUSIQ below the configured threshold get a condition-locked title search,
-E5+DINOv2 comparison, mobile HTML report, and optional Telegram alert.
+MUSIQ below the configured threshold get a condition-locked search built from
+the item's own page, a comparison over every photo and the description of both
+sides, a spec verdict from gpt-5-nano, a mobile HTML report and a Telegram alert.
 """
 from __future__ import annotations
 
@@ -39,12 +40,10 @@ from config.search_loader import load_searches  # noqa: E402
 from match_vinted_products import (  # noqa: E402
     DINOImageEncoder,
     E5TitleEncoder,
-    MatchConfig,
     choose_device,
-    run_matching,
 )
-from full_compare import FullSplitConfig, score_full, write_dual_report  # noqa: E402
-from full_item_fetch import fetch_item  # noqa: E402
+from full_compare import FullSplitConfig, score_full, write_full_report  # noqa: E402
+from full_item_fetch import cached_item, fetch_item  # noqa: E402
 from spec_compare import compare_specs, usable_comparables, verdict_summary  # noqa: E402
 from title_query import rewrite_title  # noqa: E402
 from scrape_title_candidates import (  # noqa: E402
@@ -72,14 +71,6 @@ MAX_FULL_COMPARE_ATTEMPTS = 5
 MUSIQ_BAD_THRESHOLD = 55.0
 # Phone photos score lower across the board, so they need their own cut.
 SEARCH_MUSIQ_THRESHOLDS = {"telefoni": 65.0}
-
-
-@dataclass(frozen=True)
-class SplitConfig:
-    title_min: float = 0.82
-    image_min: float = 0.55
-    combined_min: float = 0.70
-    min_kept_for_verdict: int = 3
 
 
 class RequestPacer:
@@ -220,22 +211,6 @@ class JsonState:
         temporary.replace(self.path)
 
 
-def provisional_split(ranked: pd.DataFrame, config: SplitConfig) -> pd.DataFrame:
-    rows = ranked.copy()
-    valid = (
-        rows["title_similarity"].ge(config.title_min)
-        & rows["image_similarity"].ge(config.image_min)
-        & rows["combined_score"].ge(config.combined_min)
-    )
-    rows["decision"] = np.where(valid, "kept", "non_kept")
-    rows["reason"] = np.where(
-        valid,
-        "passes provisional title + image similarity floors",
-        "fails one or more provisional similarity floors",
-    )
-    return rows
-
-
 def price_analysis(target_price: float, kept_prices: pd.Series, min_kept: int = 3) -> dict:
     prices = pd.to_numeric(kept_prices, errors="coerce")
     prices = prices[np.isfinite(prices) & prices.gt(0)]
@@ -257,75 +232,6 @@ def price_analysis(target_price: float, kept_prices: pd.Series, min_kept: int = 
 
 def _score(value: object) -> str:
     return "—" if pd.isna(value) else f"{float(value):.3f}"
-
-
-def write_mobile_report(
-    path: Path,
-    target: dict,
-    rows: pd.DataFrame,
-    candidates: pd.DataFrame,
-    analysis: dict,
-    musiq: float,
-) -> None:
-    merged = rows.merge(
-        candidates[["Dataid", "Price", "Images", "Condition"]],
-        left_on="candidate_item_id",
-        right_on="Dataid",
-        how="left",
-    )
-
-    def cards(decision: str) -> str:
-        selected = merged[merged["decision"].eq(decision)]
-        return "".join(
-            f"""<article>
-<img src="{html.escape(str(row['Images']))}" loading="lazy">
-<h3>#{int(row['combined_rank'])} · {html.escape(str(row['candidate_title']))}</h3>
-<p><b>€{float(row['Price']):.2f}</b> · {html.escape(str(row['Condition']))}</p>
-<code>title {_score(row['title_similarity'])} · image {_score(row['image_similarity'])} · combined {_score(row['combined_score'])}</code>
-<p>{html.escape(str(row['reason']))}</p>
-<a href="{html.escape(str(row['listing_url']))}" target="_blank" rel="noopener">Open on Vinted</a>
-</article>"""
-            for _, row in selected.iterrows()
-        )
-
-    median = "—" if analysis["median"] is None else f"€{analysis['median']:.2f}"
-    discount = "—" if analysis["discount_pct"] is None else f"{analysis['discount_pct']:+.1f}%"
-    document = f"""<!doctype html><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(str(target['Title']))} comparison</title>
-<style>
-body{{font:15px system-ui;margin:14px;background:#f4f4f4;color:#222}}a{{color:#0645ad}}
-.target,article{{background:white;border:1px solid #ddd;border-radius:10px;padding:12px}}
-.target img,article img{{width:100%;height:240px;object-fit:contain;background:#eee;border-radius:7px}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}}
-code{{display:block;font-size:12px;overflow-wrap:anywhere}}.warning{{background:#fff3cd;padding:12px;border-radius:8px}}
-</style>
-<h1>{html.escape(str(target['Title']))}</h1>
-<section class="target"><img src="{html.escape(str(target['Images']))}">
-<p><b>Target €{float(target['Price']):.2f}</b> · {html.escape(str(target['Condition']))}</p>
-<p>MUSIQ {musiq:.1f} (0-100, lower is worse)</p>
-<p><a href="{html.escape(str(target['Link']))}" target="_blank" rel="noopener">Open target on Vinted</a></p>
-</section>
-<p class="warning"><b>{html.escape(analysis['verdict'])}</b><br>
-Provisional kept: {analysis['count']} · median {median} · target discount vs median {discount}.<br>
-Matching uses only multilingual E5 title similarity and DINOv2 first-image similarity.
-Thresholds are provisional, not probabilities. Asking prices, not sold prices.</p>
-<h2>Provisionally kept ({int((merged['decision'] == 'kept').sum())})</h2><div class="grid">{cards('kept')}</div>
-<h2>Non-kept ({int((merged['decision'] != 'kept').sum())})</h2><div class="grid">{cards('non_kept')}</div>
-"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(document, encoding="utf-8")
-
-
-def local_ip() -> str:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.connect(("1.1.1.1", 80))
-        return str(sock.getsockname()[0])
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        sock.close()
 
 
 def report_host() -> str:
@@ -473,17 +379,11 @@ class Monitor:
             self.image_encoder = DINOImageEncoder(self.args.image_model, self.device)
         return self.title_encoder, self.image_encoder
 
-    def analyze(self, target: dict, target_image: Path, musiq: float) -> tuple[dict, str, pd.DataFrame, str]:
+    def find_candidates(self, target: dict) -> tuple[pd.DataFrame, str]:
+        """Search Vinted for listings of the same product. No comparison happens here."""
         status_id = str(target.get("ConditionStatusId") or "")
         if status_id not in STATUS_NAMES:
-            candidates = pd.DataFrame(columns=["Dataid", "Price", "Images", "Condition"])
-            analysis = price_analysis(float(target["Price"]), pd.Series(dtype=float))
-            report = self.reports / f"{target['Dataid']}.html"
-            write_mobile_report(report, target, pd.DataFrame(columns=[
-                "candidate_item_id", "candidate_title", "listing_url", "title_similarity",
-                "image_similarity", "combined_score", "combined_rank", "decision", "reason",
-            ]), candidates, analysis, musiq)
-            return analysis, report.name, candidates, "low"
+            return pd.DataFrame(), "low"
 
         query = str(target["Title"])
         confidence = "unknown"
@@ -499,43 +399,13 @@ class Monitor:
                 LOG.info("Query rewritten: %r -> %r [%s]", query, rewrite["query"], rewrite["confidence"])
             query = rewrite["query"]
             confidence = rewrite["confidence"]
+
         candidates = self.client.title_search(str(target["Title"]), status_id, query=query)
         candidate_path = self.output / "matches" / str(target["Dataid"]) / "candidates.csv"
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_path, index=False)
-        if candidates.empty:
-            ranked = pd.DataFrame(columns=[
-                "candidate_item_id", "candidate_title", "listing_url", "title_similarity",
-                "image_similarity", "combined_score", "combined_rank",
-            ])
-        else:
-            with self.encoder_lock:  # the full-compare worker shares these models
-                title_encoder, image_encoder = self.encoders()
-                ranked = run_matching(
-                    MatchConfig(
-                        target_item_id=str(target["Dataid"]),
-                        target_title=str(target["Title"]),
-                        target_image=str(target_image),
-                        candidates=candidate_path,
-                        out_dir=candidate_path.parent / "matcher",
-                        cache_dir=self.output / "embedding_cache",
-                        top_k=self.args.top_k,
-                        device=self.device,
-                    ),
-                    title_encoder,
-                    image_encoder,
-                )
-        split = provisional_split(ranked, SplitConfig(
-            self.args.title_min, self.args.image_min, self.args.combined_min,
-            self.args.min_kept,
-        ))
-        kept_ids = set(split.loc[split["decision"].eq("kept"), "candidate_item_id"].astype(str))
-        prices = candidates.loc[candidates["Dataid"].astype(str).isin(kept_ids), "Price"]
-        analysis = price_analysis(float(target["Price"]), prices, self.args.min_kept)
-        report = self.reports / f"{target['Dataid']}.html"
-        write_mobile_report(report, target, split, candidates, analysis, musiq)
-        split.to_csv(candidate_path.parent / "split.csv", index=False)
-        return analysis, report.name, candidates, confidence
+        LOG.info("%s: %d candidates for %r", target["Dataid"], len(candidates), query)
+        return candidates, confidence
 
     def in_price_band(self, target_price: float, candidates: pd.DataFrame, target_id: str) -> list[str]:
         """Full-page fetches are expensive, so skip candidates priced absurdly far from the target.
@@ -597,6 +467,9 @@ class Monitor:
 
     def fetch_full_item(self, item_id: str) -> dict | None:
         """One item-page fetch: paced on our own IP, unpaced through the proxy."""
+        cached = cached_item(item_id, self.output / "full_items")
+        if cached is not None:  # nothing to pace, no request happens
+            return cached
         while True:
             blocked = self.client.blocked_for()
             if blocked <= 0:
@@ -642,11 +515,6 @@ class Monitor:
     def run_full_compare(self, job: dict) -> bool:
         item_id = str(job["item_id"])
         matches = self.output / "matches" / item_id
-        split_path = matches / "split.csv"
-        if not split_path.exists():
-            LOG.warning("No stored catalog split for %s; dropping job", item_id)
-            return True
-
         target_full = self.fetch_full_item(item_id)
         if target_full is None:
             LOG.warning("Target page %s unavailable; will retry later", item_id)
@@ -683,27 +551,23 @@ class Monitor:
 
         target = job["target"]
         kept = rows_b.loc[rows_b["decision"].eq("kept"), "price"] if not rows_b.empty else pd.Series(dtype=float)
-        analysis_b = price_analysis(float(target["Price"]), kept, self.args.min_kept)
-        write_dual_report(
-            self.reports / f"{item_id}.html", target, float(job["musiq"]),
-            pd.read_csv(split_path), rows_b, job["analysis_a"], analysis_b,
-        )
+        analysis = price_analysis(float(target["Price"]), kept, self.args.min_kept)
+        write_full_report(self.reports / f"{item_id}.html", target, float(job["musiq"]), rows_b, analysis)
         breakdown = verdict_summary(rows_b) if self.args.spec_compare else ""
-        LOG.info("%s: full comparison done (catalog kept %d, full kept %d) %s",
-                 item_id, job["analysis_a"]["count"], analysis_b["count"], breakdown)
+        LOG.info("%s: comparison done (%d comparable of %d) %s",
+                 item_id, analysis["count"], len(rows_b), breakdown)
 
         # A title that names no product cannot produce comparables worth reading.
         if (job.get("title_confidence") == "low"
-                and analysis_b["count"] < self.args.min_kept
+                and analysis["count"] < self.args.min_kept
                 and self.args.skip_undecidable):
             LOG.info("%s: skipping alert - vague title %r and only %d comparable(s)",
-                     item_id, job["target"]["Title"], analysis_b["count"])
+                     item_id, job["target"]["Title"], analysis["count"])
             return True
 
         if not self.args.dry_run:
             asyncio.run(send_telegram(
-                target, job["analysis_a"], job["report_url"], float(job["musiq"]), analysis_b,
-                breakdown=breakdown,
+                target, analysis, job["report_url"], float(job["musiq"]), breakdown=breakdown,
             ))
             self.state.add_many("sent", [item_id])
         return True
@@ -751,30 +615,23 @@ class Monitor:
             if musiq >= threshold:
                 self.state.add_many("seen", [item_id])
                 continue
-            analysis, report_name, candidates, confidence = self.analyze(target, image_path, musiq)
-            report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(report_name)}"
-            LOG.info("BAD %s | %s | %s", item_id, analysis["verdict"], report_url)
+            candidates, confidence = self.find_candidates(target)
+            report_url = f"{self.args.public_base_url.rstrip('/')}/{quote(item_id)}.html"
+            LOG.info("BAD %s | MUSIQ %.1f | %s", item_id, musiq, report_url)
             self.state.add_many("seen", [item_id])
-            if self.args.full_compare:
-                # The alert waits for the full comparison; the worker sends it.
-                self.enqueue_full_compare({
-                    "item_id": item_id,
-                    "musiq": musiq,
-                    "report_url": report_url,
-                    "analysis_a": analysis,
-                    "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id)
-                    if not candidates.empty else [],
-                    "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
-                    "title_confidence": confidence,
-                    "attempts": 0,
-                })
-            elif not self.args.dry_run:
-                asyncio.run(send_telegram(target, analysis, report_url, musiq))
-                self.state.add_many("sent", [item_id])
+            self.enqueue_full_compare({
+                "item_id": item_id,
+                "musiq": musiq,
+                "report_url": report_url,
+                "candidate_ids": self.in_price_band(float(target["Price"]), candidates, item_id)
+                if not candidates.empty else [],
+                "target": {key: target[key] for key in ("Title", "Price", "Condition", "Link", "Images")},
+                "title_confidence": confidence,
+                "attempts": 0,
+            })
 
     def run(self) -> None:
-        if self.args.full_compare:
-            threading.Thread(target=self.full_compare_worker, daemon=True).start()
+        threading.Thread(target=self.full_compare_worker, daemon=True).start()
         while True:
             for name in SEARCHES:
                 self.process_search(name)
@@ -793,9 +650,6 @@ def parse_args():
     parser.add_argument("--image-model", default="facebook/dinov2-base")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--top-k", type=int, default=50)
-    parser.add_argument("--title-min", type=float, default=0.82)
-    parser.add_argument("--image-min", type=float, default=0.55)
-    parser.add_argument("--combined-min", type=float, default=0.70)
     parser.add_argument("--min-kept", type=int, default=3)
     parser.add_argument("--full-gap-seconds", type=float, default=90.0)
     parser.add_argument("--catalog-block-pause", type=float, default=600.0)
@@ -807,14 +661,13 @@ def parse_args():
     parser.add_argument("--full-combined-min", type=float, default=0.68)
     parser.add_argument("--fallback-seconds", type=float, default=600.0,
                         help="how long to route through the datacenter proxy after a block")
-    parser.add_argument("--no-full-compare", dest="full_compare", action="store_false")
     parser.add_argument("--no-smart-query", dest="smart_query", action="store_false",
                         help="search with the raw listing title instead of the rewritten query")
     parser.add_argument("--no-spec-compare", dest="spec_compare", action="store_false",
                         help="decide comparables from embeddings alone, without the model")
     parser.add_argument("--no-skip-undecidable", dest="skip_undecidable", action="store_false",
                         help="alert even when the title names no product and comparables are too few")
-    parser.set_defaults(full_compare=True, smart_query=True, spec_compare=True, skip_undecidable=True)
+    parser.set_defaults(smart_query=True, spec_compare=True, skip_undecidable=True)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prime-first-cycle", dest="prime_first_cycle", action="store_false")
@@ -824,7 +677,7 @@ def parse_args():
         parser.error("gap must be >= 0; top-k and min-kept must be >= 1")
     if args.full_gap_seconds < 0 or args.max_photos < 1 or args.price_band <= 1:
         parser.error("full-gap must be >= 0; max-photos >= 1; price-band > 1")
-    for value in (args.title_min, args.image_min, args.combined_min):
+    for value in (args.full_photo_min, args.full_title_min, args.full_combined_min):
         if not -1 <= value <= 1:
             parser.error("similarity floors must be between -1 and 1")
     return args
