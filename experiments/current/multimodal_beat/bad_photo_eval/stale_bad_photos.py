@@ -85,24 +85,56 @@ def measure(image_dir: str) -> tuple[str | None, int, int, int]:
 
 
 def scan(args) -> None:
+    """Build the candidate list one search at a time, appending as it goes.
+
+    Holding all 1.16M rows plus four parallel lists of measurements got this killed by the
+    kernel while the scoring workers were running, so nothing accumulates now.
+    """
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("building pool")
-    pool = build_pool(args.min_price, args.min_age_days)
-    if pool.empty:
+    cutoff = pd.Timestamp(datetime.now() - timedelta(days=args.min_age_days))
+    temporary = SCAN_PATH.with_suffix(".partial")
+    temporary.unlink(missing_ok=True)
+    written = 0
+
+    for search_dir in sorted(p for p in SIMPLE_SCRAPE.iterdir() if p.is_dir()):
+        big, cache = search_dir / "big_raw.csv", search_dir / "image_cache"
+        if not big.exists() or not cache.exists():
+            continue
+        columns = ["Dataid", "Title", "Price", "Link", "SearchDate", "MarketStatus", "Brand"]
+        frame = pd.read_csv(big, usecols=lambda c: c in columns, low_memory=False)
+        frame["when"] = pd.to_datetime(frame["SearchDate"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        frame = (frame.dropna(subset=["when"]).sort_values("when")
+                 .drop_duplicates("Dataid", keep="first"))
+        frame["Price"] = pd.to_numeric(frame["Price"], errors="coerce")
+        frame = frame[(frame["MarketStatus"].astype(str).str.upper() != "SOLD")
+                      & (frame["when"] < cutoff)
+                      & (frame["Price"] >= args.min_price)]
+        if frame.empty:
+            continue
+        on_disk = {p.name for p in cache.iterdir() if p.is_dir()}
+        frame = frame[frame["Dataid"].astype(str).isin(on_disk)].copy()
+        if frame.empty:
+            continue
+        frame["search"] = search_dir.name
+        measured = [measure(str(cache / str(i))) for i in frame["Dataid"]]
+        frame["image_path"] = [m[0] for m in measured]
+        frame["width"] = [m[1] for m in measured]
+        frame["height"] = [m[2] for m in measured]
+        frame["bytes"] = [m[3] for m in measured]
+        del measured
+        frame = frame[frame["image_path"].notna() & frame["width"].gt(0)]
+        frame["pixels"] = frame["width"] * frame["height"]
+        frame["age_days"] = (pd.Timestamp(datetime.now()) - frame["when"]).dt.days
+        frame.to_csv(temporary, mode="a", header=not temporary.exists(), index=False)
+        written += len(frame)
+        print(f"  {search_dir.name:26s} {len(frame):7d}  (total {written})", flush=True)
+        del frame
+
+    if not written:
         print("nothing matched")
         return
-    print(f"{len(pool)} listings; reading image headers")
-    measured = [measure(d) for d in pool["image_dir"]]
-    pool["image_path"] = [m[0] for m in measured]
-    pool["width"] = [m[1] for m in measured]
-    pool["height"] = [m[2] for m in measured]
-    pool["bytes"] = [m[3] for m in measured]
-    pool = pool[pool["image_path"].notna() & pool["width"].gt(0)]
-    pool["pixels"] = pool["width"] * pool["height"]
-    pool["age_days"] = (pd.Timestamp(datetime.now()) - pool["when"]).dt.days
-    pool.sort_values(["pixels", "bytes"]).to_csv(SCAN_PATH, index=False)
-    print(f"wrote {SCAN_PATH} ({len(pool)} rows)")
-    print(pool["pixels"].describe(percentiles=[0.01, 0.05, 0.25, 0.5]).to_string())
+    temporary.replace(SCAN_PATH)
+    print(f"wrote {SCAN_PATH} ({written} rows)")
 
 
 def score(args) -> None:
@@ -125,14 +157,16 @@ def score(args) -> None:
     part = OUT_DIR / f"scored_part{args.worker_index}.csv"
     # This laptop occasionally dies mid-run, so results are appended as they are produced
     # and anything already scored is skipped on restart.
+    # Skip anything any previous run already scored, not just this worker's own file,
+    # so re-running over a wider selection does not redo finished searches.
     done: set[str] = set()
-    if part.exists():
+    for existing in sorted(OUT_DIR.glob("scored_part*.csv")):
         try:
-            done = set(pd.read_csv(part, usecols=["Dataid"])["Dataid"].astype(str))
+            done |= set(pd.read_csv(existing, usecols=["Dataid"])["Dataid"].astype(str))
         except Exception:
-            LOG_BROKEN = part.with_suffix(".broken")
-            part.rename(LOG_BROKEN)
-            print(f"unreadable checkpoint moved to {LOG_BROKEN}")
+            broken = existing.with_suffix(".broken")
+            existing.rename(broken)
+            print(f"unreadable checkpoint moved to {broken}")
     todo = frame[~frame["Dataid"].astype(str).isin(done)]
     print(f"worker {args.worker_index}: {len(todo)} to score, {len(done)} already done", flush=True)
 
@@ -144,6 +178,9 @@ def score(args) -> None:
         except Exception:
             value = float("nan")
         batch.append({**row._asdict(), "musiq": value})
+        if args.rest_every and index % args.rest_every == 0:
+            print(f"  worker {args.worker_index}: resting {args.rest_seconds:.0f}s", flush=True)
+            time.sleep(args.rest_seconds)
         if len(batch) >= args.checkpoint or index == len(todo):
             chunk = pd.DataFrame(batch)
             chunk.to_csv(part, mode="a", header=not part.exists(), index=False)
@@ -392,6 +429,9 @@ def main() -> None:
     scorer.add_argument("--threads", type=int, default=2, help="torch threads per worker")
     scorer.add_argument("--checkpoint", type=int, default=100,
                         help="append results to disk every N images")
+    scorer.add_argument("--rest-every", type=int, default=0,
+                        help="pause after every N images to let the laptop cool")
+    scorer.add_argument("--rest-seconds", type=float, default=30.0)
     scorer.set_defaults(func=score)
     checker = sub.add_parser("live")
     checker.add_argument("--limit", type=int, default=200)

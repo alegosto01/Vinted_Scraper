@@ -1,0 +1,22 @@
+[Unit]
+Description=Vinted stale-listing MUSIQ scoring (CPU capped so the laptop stays cool)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
+Environment=MPLCONFIGDIR=/tmp/matplotlib-stale-score
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=2
+Environment=MKL_NUM_THREADS=2
+ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python /home/ale/Desktop/vinted/Vinted_New_Version/experiments/current/multimodal_beat/bad_photo_eval/stale_bad_photos.py score --workers 1 --worker-index 0 --threads 2 --checkpoint 200 --rest-every 200 --rest-seconds 60
+Nice=15
+# Two cores of eight, so the machine stays cool and stays usable. Memory is capped
+# because an unbounded run already had the kernel kill three jobs at once.
+CPUQuota=100%
+MemoryMax=5G
+Restart=always
+RestartSec=120
+
+[Install]
+WantedBy=default.target
