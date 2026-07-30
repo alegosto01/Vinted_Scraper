@@ -1,0 +1,16 @@
+[Unit]
+Description=Vinted stale bad-photo liveness hunt (own IP, 180s pace, no proxy)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ale/Desktop/vinted/Vinted_New_Version
+Environment=MPLCONFIGDIR=/tmp/matplotlib-stale-hunt
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ale/miniconda3/envs/vinted_scraper/bin/python /home/ale/Desktop/vinted/Vinted_New_Version/experiments/current/multimodal_beat/bad_photo_eval/stale_bad_photos.py hunt --gap 180 --max-musiq 60 --no-compare
+Nice=5
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

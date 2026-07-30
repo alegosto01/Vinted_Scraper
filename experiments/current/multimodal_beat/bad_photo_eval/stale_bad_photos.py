@@ -315,23 +315,31 @@ def hunt(args) -> None:
     blocked_streak = 0
     for row in todo:
         item_id = str(row.Dataid)
-        # A 403 is a block, not a delisting: recording it as "gone" would quietly bury a
-        # live listing forever, so the item is retried instead of being written off.
+        # 404 means the listing is really gone. 403 and friends mean our IP is blocked, and
+        # recording those as "gone" would bury live listings - so those are retried, but only
+        # a few times, or one dead item stalls the whole run (it stalled it for 9 hours).
+        attempts, code, data = 0, None, None
         while True:
             pacer.wait()
             status: list[int] = []
             data = fif.fetch_item(session, item_id, cache, monitor_module.HEADERS,
                                   on_status=status.append)
             code = status[0] if status else 200  # no status means it came from cache
-            if code != 200:
-                blocked_streak += 1
-                backoff = min(args.block_backoff * blocked_streak, args.max_backoff)
-                print(f"{item_id}: HTTP {code}, blocked - waiting {backoff/60:.0f} min "
-                      f"(streak {blocked_streak})", flush=True)
-                time.sleep(backoff)
-                continue
-            blocked_streak = 0
-            break
+            if code in (200, 404):
+                blocked_streak = 0
+                break
+            attempts += 1
+            if attempts >= args.max_attempts:
+                print(f"{item_id}: HTTP {code} after {attempts} tries, leaving unrecorded",
+                      flush=True)
+                break
+            blocked_streak += 1
+            backoff = min(args.block_backoff * blocked_streak, args.max_backoff)
+            print(f"{item_id}: HTTP {code}, blocked - waiting {backoff/60:.0f} min "
+                  f"(streak {blocked_streak}, try {attempts}/{args.max_attempts})", flush=True)
+            time.sleep(backoff)
+        if code not in (200, 404):
+            continue  # undecided: try again on a later pass rather than guessing
         alive = data is not None
         state[item_id] = {"musiq": float(row.musiq), "price": float(row.Price),
                           "live": alive, "checked_at": datetime.now().isoformat(timespec="seconds")}
@@ -398,7 +406,9 @@ def main() -> None:
     hunter.add_argument("--gap", type=float, default=180.0, help="seconds between requests")
     hunter.add_argument("--block-backoff", type=float, default=900.0,
                         help="seconds to wait after a block, multiplied by the streak")
-    hunter.add_argument("--max-backoff", type=float, default=7200.0)
+    hunter.add_argument("--max-backoff", type=float, default=1800.0)
+    hunter.add_argument("--max-attempts", type=int, default=4,
+                        help="blocked retries per listing before moving on")
     hunter.add_argument("--max-musiq", type=float, default=60.0)
     hunter.add_argument("--min-price", type=float, default=0.0)
     hunter.add_argument("--max-candidates", type=int, default=12)
