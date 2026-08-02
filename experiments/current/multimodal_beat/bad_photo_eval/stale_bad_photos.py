@@ -183,6 +183,15 @@ def score(args) -> None:
             time.sleep(args.rest_seconds)
         if len(batch) >= args.checkpoint or index == len(todo):
             chunk = pd.DataFrame(batch)
+            # Append only in the column order the file already has. The candidate columns
+            # changed once between runs and every appended row silently landed in the wrong
+            # column - 517,800 rows of it - because pandas does not check.
+            if part.exists():
+                header = pd.read_csv(part, nrows=0).columns.tolist()
+                missing = [c for c in header if c not in chunk.columns]
+                for column in missing:
+                    chunk[column] = pd.NA
+                chunk = chunk[header]
             chunk.to_csv(part, mode="a", header=not part.exists(), index=False)
             written += len(batch)
             batch = []
